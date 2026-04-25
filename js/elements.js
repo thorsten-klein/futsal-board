@@ -1,0 +1,1208 @@
+// Elements module - handles field elements (ball, cone, flag, goal, ladder)
+const Elements = {
+    layer: null,
+    elementSvgs: {},
+
+    // Element anchor points (as fractions of width/height: 0.5 = center)
+    // These define where the element's "center" is for positioning
+    elementAnchors: {
+        'cone': { x: 0.5, y: 0.9 },       // Center of base ellipse (cx=50/100, cy=90/100)
+        'goal': { x: 1, y: 0.5 },         // Goal line (right edge) at vertical center
+        'small-goal': { x: 1, y: 0.5 },   // Goal line (right edge) at vertical center
+        'pole': { x: 0.5, y: 0.9 },       // Center of base ellipse (cx=45/90, cy=270/300)
+        'ladder': { x: 0.5, y: 0.5 },     // Geometric center
+        'rebounce': { x: 0.5, y: 1.0 },   // Center bottom
+        'small-wall': { x: 0.5, y: 1.0 }, // Center bottom
+        'big-wall': { x: 0.5, y: 1.0 },   // Center bottom
+        'small-hurdle': { x: 0.5, y: 0.5 } // Geometric center
+    },
+
+    // Get anchor point for element type
+    getAnchor(type) {
+        return this.elementAnchors[type] || { x: 0.5, y: 0.5 };
+    },
+
+    /** Sets up element DOM layer, drag/drop, and context-menu event listeners. */
+    init() {
+        this.layer = document.getElementById('board-area'); // Reuse players layer
+        this.contextMenuElement = null;
+        this.rotationHandle = null;
+        this.isRotating = false;
+        this.setupElementButtons();
+        this.setupInteractions();
+        this.setupContextMenu();
+        this.setupPositionDialog();
+        this.setupRotationHandling();
+    },
+
+    // Update element button preview sizes to match board scale
+    updateElementButtonSizes() {
+        const canvasRect = AppState.canvas.getBoundingClientRect();
+        const scaleX = canvasRect.width / AppState.boardWidth;
+        const scaleY = canvasRect.height / AppState.boardHeight;
+
+        document.querySelectorAll('.element-btn').forEach(btn => {
+            const elementType = btn.dataset.element;
+            const svg = btn.querySelector('svg');
+
+            if (!svg) return;
+
+            let width, height;
+            switch (elementType) {
+                case 'cone':
+                    // 100cm x 120cm
+                    width = 100 * scaleX;
+                    height = 120 * scaleY;
+                    break;
+                case 'goal':
+                    // 100cm x 300cm
+                    width = 100 * scaleX;
+                    height = 300 * scaleY;
+                    break;
+                case 'small-goal':
+                    // 50cm x 100cm
+                    width = 50 * scaleX;
+                    height = 100 * scaleY;
+                    break;
+                case 'pole':
+                    // 90cm x 300cm
+                    width = 90 * scaleX;
+                    height = 300 * scaleY;
+                    break;
+                case 'ladder':
+                    // 100cm x 600cm (vertical)
+                    width = 100 * scaleX;
+                    height = 600 * scaleY;
+                    break;
+                case 'rebounce':
+                    // 50cm x 400cm
+                    width = 50 * scaleX;
+                    height = 400 * scaleY;
+                    break;
+                case 'small-wall':
+                    // 50cm x 100cm
+                    width = 50 * scaleX;
+                    height = 100 * scaleY;
+                    break;
+                case 'big-wall':
+                    // 50cm x 200cm
+                    width = 50 * scaleX;
+                    height = 200 * scaleY;
+                    break;
+                case 'small-hurdle':
+                    // 100cm x 60cm
+                    width = 100 * scaleX;
+                    height = 60 * scaleY;
+                    break;
+            }
+
+            if (width && height) {
+                svg.setAttribute('width', width);
+                svg.setAttribute('height', height);
+            }
+        });
+    },
+
+    // Setup element buttons
+    setupElementButtons() {
+        const boardContainer = document.querySelector('.board-container');
+
+        // Update sizes initially
+        this.updateElementButtonSizes();
+
+        document.querySelectorAll('.element-btn').forEach(btn => {
+            // Make button draggable
+            btn.draggable = true;
+
+            // Track if dragging is happening
+            let isDragging = false;
+
+            // Store element type on drag start
+            btn.addEventListener('dragstart', (e) => {
+                isDragging = true;
+                const elementType = btn.dataset.element;
+                e.dataTransfer.effectAllowed = 'copy';
+                e.dataTransfer.setData('elementType', elementType);
+
+                // Create a custom drag image whose cursor hotspot aligns with the
+                // element's anchor point so there is no visual jump on drop.
+                const dragImage = btn.querySelector('svg').cloneNode(true);
+                dragImage.style.position = 'absolute';
+                dragImage.style.top = '-1000px';
+                document.body.appendChild(dragImage);
+                const imgW = parseFloat(dragImage.getAttribute('width') || '0');
+                const imgH = parseFloat(dragImage.getAttribute('height') || '0');
+                const anchor = this.getAnchor(elementType);
+                e.dataTransfer.setDragImage(dragImage, imgW * anchor.x || 20, imgH * anchor.y || 20);
+                setTimeout(() => document.body.removeChild(dragImage), 0);
+            });
+
+            btn.addEventListener('dragend', (e) => {
+                // Reset dragging flag after a short delay
+                setTimeout(() => { isDragging = false; }, 100);
+            });
+
+            // Keep click functionality as fallback
+            btn.addEventListener('click', () => {
+                if (isDragging) return; // Don't trigger if user was dragging
+
+                // Can't add elements in child boards
+                if (AppState.isChildBoard()) {
+                    Utils.showMessage('Elements can only be added on parent boards. Only shapes/draws can be added on child boards.', 'Cannot Add Element');
+                    return;
+                }
+
+                const elementType = btn.dataset.element;
+                this.createElementAtCenter(elementType);
+            });
+        });
+
+        // Setup drop zone on board
+        boardContainer.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+            boardContainer.classList.add('drag-over');
+            const canvasRect = AppState.canvas.getBoundingClientRect();
+            const boardX = (e.clientX - canvasRect.left) * (AppState.boardWidth / canvasRect.width);
+            const boardY = (e.clientY - canvasRect.top) * (AppState.boardHeight / canvasRect.height);
+            AppState.updatePositionDisplay(boardX, boardY, null, 'element');
+        });
+
+        boardContainer.addEventListener('dragleave', (e) => {
+            if (e.target === boardContainer) {
+                boardContainer.classList.remove('drag-over');
+                AppState.hidePositionDisplay();
+            }
+        });
+
+        boardContainer.addEventListener('drop', (e) => {
+            e.preventDefault();
+            boardContainer.classList.remove('drag-over');
+
+            const elementType = e.dataTransfer.getData('elementType');
+
+            if (elementType) {
+                // Can't add elements in child boards
+                if (AppState.isChildBoard()) {
+                    AppState.hidePositionDisplay();
+                    Utils.showMessage('Elements can only be added on parent boards. Only shapes/draws can be added on child boards.', 'Cannot Add Element');
+                    return;
+                }
+
+                // Get drop position relative to board
+                const canvasRect = AppState.canvas.getBoundingClientRect();
+                const scaleX = AppState.boardWidth / canvasRect.width;
+                const scaleY = AppState.boardHeight / canvasRect.height;
+
+                let boardX = (e.clientX - canvasRect.left) * scaleX;
+                let boardY = (e.clientY - canvasRect.top) * scaleY;
+
+                // Keep within board bounds
+                boardX = Math.max(0, Math.min(AppState.boardWidth, boardX));
+                boardY = Math.max(0, Math.min(AppState.boardHeight, boardY));
+
+
+                // Create element at drop position
+                const element = AppState.addElement(elementType, boardX, boardY);
+
+                this.render();
+            }
+        });
+
+        boardContainer.addEventListener('dragend', () => {
+            boardContainer.classList.remove('drag-over');
+        });
+    },
+
+    // Create element at center of board
+    createElementAtCenter(type) {
+        // Find a free position on the board
+        const freePos = AppState.findFreePosition(250);
+
+        AppState.addElement(type, freePos.x, freePos.y);
+        // saveToHistory already called by saveToLocalStorage in addElement
+        this.render();
+    },
+
+    // Setup element interactions
+    setupInteractions() {
+        this.layer.addEventListener('mousedown', (e) => {
+            if (AppState.currentTool !== 'select') return;
+
+            // Find the element ID by traversing up the DOM tree
+            const elementId = Utils.findEntityId(e.target, this.layer, 'element');
+
+            if (elementId) {
+                const element = AppState.getElement(elementId);
+                if (element) {
+                    // Check if element is already selected
+                    if (AppState.selectedElement && AppState.selectedElement.id === element.id) {
+                        // Don't allow dragging if inherited
+                        if (element.inherited) {
+                            return;
+                        }
+
+                        // Already selected, prepare to drag
+                        AppState.draggedElement = element;
+                        AppState.updatePositionDisplay(element.x, element.y, element, 'element');
+
+                        const rect = AppState.canvas.getBoundingClientRect();
+                        const scaleX = AppState.boardWidth / rect.width;
+                        const scaleY = AppState.boardHeight / rect.height;
+
+                        AppState.dragOffset = {
+                            x: (e.clientX - rect.left) * scaleX - element.x,
+                            y: (e.clientY - rect.top) * scaleY - element.y
+                        };
+                    } else {
+                        // Not selected yet, just select it (allowed even if locked)
+                        AppState.selectedElement = element;
+                        AppState.selectedPlayer = null;
+                        AppState.selectedBall = null;
+                        AppState.selectedPlate = null;
+                        AppState.selectedShape = null;
+                        AppState.selectedPath = null;
+                        AppState.selectedGhost = null;
+                        AppState.updatePositionDisplay(element.x, element.y, element, 'element');
+
+                        this.render(); // Re-render to show selection
+                        if (typeof Players !== 'undefined') {
+                            Players.render();
+                        }
+                        if (typeof Balls !== 'undefined') {
+                            Balls.render();
+                        }
+                        if (typeof Plates !== 'undefined') {
+                            Plates.render();
+                        }
+                        if (typeof Shapes !== 'undefined') {
+                            Shapes.render();
+                        }
+                        if (typeof Animations !== 'undefined') {
+                            Animations.renderParentPaths();
+                        }
+                    }
+
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+            } else {
+                // Clicked on empty space - deselect element but don't interfere with other selections
+                if (AppState.selectedElement) {
+                    AppState.selectedElement = null;
+                    if (!AppState.selectedPlayer && !AppState.selectedBall && !AppState.selectedPlate) {
+                        AppState.hidePositionDisplay();
+                    }
+                    this.render();
+                }
+            }
+        });
+
+        Utils.setupEntityDrag({
+            dragKey: 'draggedElement',
+            selectedKey: 'selectedElement',
+            type: 'element',
+            updateDOM(el, x, y, pxW, pxH) {
+                el.style.left = (x * (pxW / AppState.boardWidth))  + 'px';
+                el.style.top  = (y * (pxH / AppState.boardHeight)) + 'px';
+                // rotation/anchor transform is maintained from original render
+            },
+            afterMove: () => {
+                if (!this.isRotating) this.updateRotationHandlePosition();
+            }
+        });
+
+        // Context menu for elements (right-click)
+        this.layer.addEventListener('contextmenu', (e) => {
+            // Find the element ID by traversing up the DOM tree
+            const elementId = Utils.findEntityId(e.target, this.layer, 'element');
+
+            if (elementId) {
+                e.preventDefault();
+                const element = AppState.getElement(elementId);
+                if (element) {
+                    this.showContextMenu(e.clientX, e.clientY, element);
+                }
+            }
+        });
+
+        // Context menu for elements (double-click)
+        this.layer.addEventListener('dblclick', (e) => {
+            // Find the element ID by traversing up the DOM tree
+            const elementId = Utils.findEntityId(e.target, this.layer, 'element');
+
+            if (elementId) {
+                e.preventDefault();
+                const element = AppState.getElement(elementId);
+                if (element) {
+                    this.showContextMenu(e.clientX, e.clientY, element);
+                }
+            }
+        });
+
+        // Touch events are globally converted to mouse events in app.js
+    },
+
+    // Setup context menu
+    setupContextMenu() {
+        const menu = document.getElementById('element-context-menu');
+
+        // Hide menu when clicking outside
+        document.addEventListener('click', (e) => {
+            const freshMenu = document.getElementById('element-context-menu');
+            if (!freshMenu) return;
+
+            // Don't close if menu was just opened (prevents double-tap click from closing it)
+            const timeSinceOpen = Date.now() - (this.menuOpenTime || 0);
+            if (timeSinceOpen < 300) {
+                return;
+            }
+
+            // Only hide if not clicking on the menu itself
+            if (!freshMenu.contains(e.target)) {
+                this.menuVisible = false;
+                freshMenu.classList.add('hidden');
+                freshMenu.style.display = 'none';
+            }
+        });
+
+        // Hide menu on mouseup (for touch compatibility)
+        const handleMouseUp = (e) => {
+            // Get fresh reference to menu (in case it was re-rendered)
+            const freshMenu = document.getElementById('element-context-menu');
+            if (!freshMenu) return;
+
+            // Don't close menu if it was just opened (prevents double-tap from immediately closing it)
+            const timeSinceOpen = Date.now() - (this.menuOpenTime || 0);
+
+            if (timeSinceOpen < 300) {
+                return;
+            }
+
+            // Only hide if not clicking on the menu itself
+            if (!freshMenu.contains(e.target)) {
+                this.menuVisible = false;
+                freshMenu.classList.add('hidden');
+                freshMenu.style.display = 'none';
+                this.menuCloseTime = Date.now();
+            } else {
+            }
+        };
+
+        document.addEventListener('mouseup', handleMouseUp);
+
+        // Hide menu when window loses focus
+        window.addEventListener('blur', () => {
+            const freshMenu = document.getElementById('element-context-menu');
+            if (!freshMenu) return;
+            this.menuVisible = false;
+            freshMenu.classList.add('hidden');
+            freshMenu.style.display = 'none';
+        });
+
+        // Handle menu item clicks
+        menu.addEventListener('click', (e) => {
+            const item = e.target.closest('.context-menu-item');
+            if (!item || !this.contextMenuElement) return;
+
+            // Always hide menu first, even if item is disabled
+            this.menuVisible = false;
+            menu.classList.add('hidden');
+            menu.style.display = 'none';
+            const element = this.contextMenuElement;
+            this.contextMenuElement = null;
+
+            // Don't execute if item is disabled
+            if (item.classList.contains('disabled')) {
+                return;
+            }
+
+            const action = item.dataset.action;
+
+            switch (action) {
+                case 'remove':
+                    // Can't remove inherited elements
+                    if (element.inherited) return;
+                    // Clear rotation handle first
+                    if (this.rotationHandle) {
+                        this.rotationHandle.remove();
+                        this.rotationHandle = null;
+                    }
+                    // Clear selection
+                    AppState.selectedElement = null;
+                    AppState.hidePositionDisplay();
+                    AppState.removeElement(element.id);
+                    this.render();
+                    break;
+                case 'position':
+                    this.showPositionDialog(element);
+                    break;
+                case 'color':
+                    this.showColorDialog(element);
+                    break;
+                case 'lock':
+                    element.locked = !element.locked;
+                    AppState.saveToLocalStorage();
+                    this.render();
+                    break;
+            }
+        });
+
+        // Color dialog
+        document.getElementById('btn-cancel-color').addEventListener('click', () => {
+            document.getElementById('element-color-modal').classList.add('hidden');
+        });
+
+        document.getElementById('btn-confirm-color').addEventListener('click', () => {
+            this.applyColor();
+        });
+
+        // Color presets
+        document.querySelectorAll('.color-preset').forEach(preset => {
+            preset.addEventListener('click', () => {
+                const color = preset.dataset.color;
+                document.getElementById('element-color-picker').value = color;
+            });
+        });
+    },
+
+    // Setup position dialog (called once from init)
+    setupPositionDialog() {
+        // Position dialog
+        document.getElementById('btn-cancel-position').addEventListener('click', () => {
+            document.getElementById('element-position-modal').classList.add('hidden');
+        });
+
+        document.getElementById('btn-confirm-position').addEventListener('click', () => {
+            this.applyPosition();
+        });
+
+        // Position increment/decrement buttons
+        this.positionInitialValues = { x: null, y: null, rotation: null };
+        document.querySelectorAll('.position-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const action = btn.dataset.action;
+                const field = btn.dataset.field;
+                const inputId = field === 'rotation' ? 'element-rotation' : `element-pos-${field}`;
+                const input = document.getElementById(inputId);
+
+                let currentValue = parseInt(input.value) || 0;
+
+                if (field === 'rotation') {
+                    // Rotation: smart rounding on first click, then 15 degree increments
+                    const initialValue = this.positionInitialValues[field];
+                    const isFirstAdjustment = initialValue === currentValue;
+
+                    if (isFirstAdjustment) {
+                        // Round to nearest 15
+                        if (action === 'increase') {
+                            currentValue = Math.ceil(currentValue / 15) * 15;
+                        } else {
+                            currentValue = Math.floor(currentValue / 15) * 15;
+                        }
+                    } else {
+                        // Increment/decrement by 15
+                        if (action === 'increase') {
+                            currentValue += 15;
+                        } else {
+                            currentValue -= 15;
+                        }
+                    }
+                    // Keep in 0-360 range
+                    currentValue = ((currentValue % 360) + 360) % 360;
+                } else {
+                    // Position: use 50cm increments with smart rounding
+                    const initialValue = this.positionInitialValues[field];
+                    const isFirstAdjustment = initialValue === currentValue;
+
+                    if (isFirstAdjustment) {
+                        // Round to nearest 50
+                        if (action === 'increase') {
+                            currentValue = Math.ceil(currentValue / 50) * 50;
+                        } else {
+                            currentValue = Math.floor(currentValue / 50) * 50;
+                        }
+                    } else {
+                        // Increment/decrement by 50
+                        if (action === 'increase') {
+                            currentValue += 50;
+                        } else {
+                            currentValue -= 50;
+                        }
+                    }
+                }
+
+                input.value = currentValue;
+            });
+        });
+    },
+
+    // Show context menu
+    showContextMenu(x, y, element) {
+
+        // Don't open menu if it was just closed (prevents double-tap from reopening immediately after closing)
+        // Only check this if we're opening for a different element or if enough time has passed
+        const timeSinceClose = Date.now() - (this.menuCloseTime || 0);
+        const sameElement = this.contextMenuElement && element && this.contextMenuElement.id === element.id;
+        if (timeSinceClose < 200 && sameElement) {
+            return;
+        }
+
+        // Record when menu was opened (for touch tap detection)
+        this.menuOpenTime = Date.now();
+        this.menuVisible = true;
+
+        this.contextMenuElement = element;
+        const menu = document.getElementById('element-context-menu');
+
+        // Remove custom menu items added by other modules
+        const customItems = menu.querySelectorAll('[data-action="name"], [data-action="number"], [data-action="edit-text"], [data-action="size"], [data-action="reset"]');
+        customItems.forEach(item => item.remove());
+
+        // Hide lock menu item (feature removed)
+        const lockItem = menu.querySelector('[data-action="lock"]');
+        if (lockItem) {
+            lockItem.style.display = 'none';
+        }
+
+        // Disable menu items if inherited
+        const menuItems = menu.querySelectorAll('.context-menu-item');
+        menuItems.forEach(item => {
+            if (element.inherited) {
+                item.classList.add('disabled');
+            } else {
+                item.classList.remove('disabled');
+            }
+        });
+
+        // Position menu and ensure it stays within viewport
+        // Get fresh reference to menu
+        const freshMenu = document.getElementById('element-context-menu');
+
+        freshMenu.classList.remove('hidden');
+
+        Utils.positionContextMenu(freshMenu, x, y);
+    },
+
+    // Show position dialog
+    showPositionDialog(element) {
+        // Don't show dialog if locked or inherited
+        if (element.inherited) return;
+
+        this.contextMenuElement = element;
+
+        // Convert board coordinates to pitch coordinates (0,0 = top-left of pitch)
+        const pitchX = Math.round(element.x - AppState.pitchOffsetX);
+        const pitchY = Math.round(element.y - AppState.pitchOffsetY);
+        const rotation = Math.round(element.rotation || 0);
+
+        document.getElementById('element-pos-x').value = pitchX;
+        document.getElementById('element-pos-y').value = pitchY;
+        document.getElementById('element-rotation').value = rotation;
+
+        // Show/hide rotation group based on element type
+        const rotationGroup = document.getElementById('rotation-group');
+        if (this.supportsRotation(element.type)) {
+            rotationGroup.style.display = 'block';
+        } else {
+            rotationGroup.style.display = 'none';
+        }
+
+        // Store initial values for rounding logic
+        this.positionInitialValues = { x: pitchX, y: pitchY, rotation: rotation };
+
+        Utils.openModal('element-position-modal');
+    },
+
+    // Apply position
+    applyPosition() {
+        if (!this.contextMenuElement) return;
+
+        const pitchX = parseInt(document.getElementById('element-pos-x').value);
+        const pitchY = parseInt(document.getElementById('element-pos-y').value);
+        const rotation = parseInt(document.getElementById('element-rotation').value);
+
+        if (isNaN(pitchX) || isNaN(pitchY)) {
+            Utils.showMessage('Please enter valid numbers for X and Y position.', 'Invalid Position');
+            return;
+        }
+
+        // Convert pitch coordinates back to board coordinates
+        this.contextMenuElement.x = Math.max(0, Math.min(AppState.boardWidth, pitchX + AppState.pitchOffsetX));
+        this.contextMenuElement.y = Math.max(0, Math.min(AppState.boardHeight, pitchY + AppState.pitchOffsetY));
+
+        // Update rotation if element supports it
+        if (this.supportsRotation(this.contextMenuElement.type)) {
+            this.contextMenuElement.rotation = ((rotation % 360) + 360) % 360;
+        }
+
+        // Update position display with new coordinates
+        AppState.updatePositionDisplay(this.contextMenuElement.x, this.contextMenuElement.y, this.contextMenuElement, 'element');
+
+        AppState.saveToLocalStorage();
+        this.render();
+
+        document.getElementById('element-position-modal').classList.add('hidden');
+    },
+
+    // Show color dialog
+    showColorDialog(element) {
+        // Don't show dialog if locked or inherited
+        if (element.inherited) return;
+
+        this.contextMenuElement = element;
+
+        const currentColor = element.color || '#ff6b35';
+        document.getElementById('element-color-picker').value = currentColor;
+        Utils.openModal('element-color-modal');
+    },
+
+    // Apply color
+    applyColor() {
+        if (!this.contextMenuElement) return;
+
+        const color = document.getElementById('element-color-picker').value;
+        this.contextMenuElement.color = color;
+
+        AppState.saveToLocalStorage();
+        this.render();
+
+        document.getElementById('element-color-modal').classList.add('hidden');
+    },
+
+    /** Clears and re-creates all element DOM elements from AppState.elements. */
+    render() {
+        // Safety check: don't render if layer is not initialized yet
+        if (!this.layer) {
+            return;
+        }
+
+
+        // Clear ALL element SVGs from the DOM (not just tracked ones)
+        this.layer.querySelectorAll('.element-svg').forEach(svg => {
+            svg.remove();
+        });
+        this.elementSvgs = {};
+
+        // Render each element
+        AppState.elements.forEach(element => {
+            if (element.visible) {
+                this.renderElement(element);
+            }
+        });
+
+
+        // Update rotation handle if an element is selected
+        this.updateRotationHandle();
+    },
+
+    // Render individual element
+    renderElement(element) {
+        const svg = this.createElementSvg(element);
+        if (svg) {
+            this.layer.appendChild(svg);
+            this.elementSvgs[element.id] = svg;
+        } else {
+            console.error('Failed to create SVG for element:', element);
+        }
+    },
+
+    // Create SVG for element
+    createElementSvg(element) {
+        const canvasRect = AppState.canvas.getBoundingClientRect();
+
+        // Scale based on actual rendered canvas size
+        const scaleX = canvasRect.width / AppState.boardWidth;
+        const scaleY = canvasRect.height / AppState.boardHeight;
+
+        // Position relative to players-layer (which is already positioned to match canvas)
+        const x = element.x * scaleX;
+        const y = element.y * scaleY;
+
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('class', 'element-svg');
+
+        // Add inherited class if this element is inherited from parent
+        if (element.inherited) {
+            svg.classList.add('element-inherited');
+        }
+
+        // Add selected class if this element is selected
+        if (AppState.selectedElement && AppState.selectedElement.id === element.id) {
+            svg.classList.add('element-selected');
+        }
+
+        svg.setAttribute('viewBox', '0 0 100 100');
+        svg.style.position = 'absolute';
+        svg.style.left = x + 'px';
+        svg.style.top = y + 'px';
+        svg.style.overflow = 'visible';
+        svg.style.pointerEvents = 'all';
+        svg.style.touchAction = 'none';
+
+        // Always show default cursor on board elements
+        svg.style.cursor = 'default';
+
+        svg.id = element.id; // Use ID for fast lookup, consistent with players
+        svg.dataset.element = element.id; // Keep data attribute for compatibility
+
+        // Add a transparent rect to ensure the entire SVG area is clickable
+        const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        bgRect.setAttribute('x', '0');
+        bgRect.setAttribute('y', '0');
+        bgRect.setAttribute('width', '100');
+        bgRect.setAttribute('height', '100');
+        bgRect.setAttribute('fill', 'transparent');
+        bgRect.style.pointerEvents = 'all';
+
+        let content;
+        let width, height;
+        const anchor = this.getAnchor(element.type);
+        const rotation = element.rotation || 0;
+
+        switch (element.type) {
+            case 'cone':
+                // 100cm x 120cm
+                width = 100 * scaleX;
+                height = 120 * scaleY;
+                content = this.createCone(element.color);
+                svg.setAttribute('width', width);
+                svg.setAttribute('height', height);
+                svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
+                svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
+                break;
+            case 'goal':
+                // 100cm x 300cm
+                width = 100 * scaleX;
+                height = 300 * scaleY;
+                content = this.createGoal();
+                svg.setAttribute('viewBox', '0 0 100 300');
+                svg.setAttribute('width', width);
+                svg.setAttribute('height', height);
+                svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
+                svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
+                break;
+            case 'small-goal':
+                // 50cm x 100cm
+                width = 50 * scaleX;
+                height = 100 * scaleY;
+                content = this.createSmallGoal();
+                svg.setAttribute('viewBox', '0 0 50 100');
+                svg.setAttribute('width', width);
+                svg.setAttribute('height', height);
+                svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
+                svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
+                break;
+            case 'pole':
+                // 90cm x 300cm
+                width = 90 * scaleX;
+                height = 300 * scaleY;
+                content = this.createPole(element.color);
+                svg.setAttribute('viewBox', '0 0 90 300');
+                svg.setAttribute('width', width);
+                svg.setAttribute('height', height);
+                svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
+                svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
+                break;
+            case 'ladder':
+                // 100 x 600 units
+                width = 100 * scaleX;
+                height = 600 * scaleY;
+                content = this.createLadder();
+                svg.setAttribute('viewBox', '0 0 100 600');
+                svg.setAttribute('width', width);
+                svg.setAttribute('height', height);
+                svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
+                svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
+                break;
+            case 'rebounce':
+                // 50cm x 400cm
+                width = 50 * scaleX;
+                height = 400 * scaleY;
+                content = this.createRebounce(element.color);
+                svg.setAttribute('viewBox', '0 0 50 400');
+                svg.setAttribute('width', width);
+                svg.setAttribute('height', height);
+                svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
+                svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
+                break;
+            case 'small-wall':
+                // 50cm x 100cm
+                width = 50 * scaleX;
+                height = 100 * scaleY;
+                content = this.createSmallWall(element.color);
+                svg.setAttribute('viewBox', '0 0 50 100');
+                svg.setAttribute('width', width);
+                svg.setAttribute('height', height);
+                svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
+                svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
+                break;
+            case 'big-wall':
+                // 50cm x 200cm
+                width = 50 * scaleX;
+                height = 200 * scaleY;
+                content = this.createBigWall(element.color);
+                svg.setAttribute('viewBox', '0 0 50 200');
+                svg.setAttribute('width', width);
+                svg.setAttribute('height', height);
+                svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
+                svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
+                break;
+            case 'small-hurdle':
+                // 100cm x 60cm
+                width = 100 * scaleX;
+                height = 60 * scaleY;
+                content = this.createSmallHurdle(element.color);
+                svg.setAttribute('viewBox', '0 0 100 60');
+                svg.setAttribute('width', width);
+                svg.setAttribute('height', height);
+                svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
+                svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
+                break;
+        }
+
+        if (content) {
+            // First set the content
+            svg.innerHTML = content;
+            // Then prepend the background rect
+            svg.insertBefore(bgRect, svg.firstChild);
+        }
+
+        return svg;
+    },
+
+    // SVG content for cone (25cm wide x 30cm tall)
+    createCone(color) {
+        color = color || '#ff6b35';
+        const darkerColor = this.darkenColor(color, 20);
+        return `
+            <g>
+                <polygon points="50,10 20,90 80,90" fill="${color}" stroke="#000" stroke-width="3"/>
+                <ellipse cx="50" cy="90" rx="30" ry="8" fill="${darkerColor}" stroke="#000" stroke-width="2"/>
+            </g>
+        `;
+    },
+
+    // SVG content for goal (100 wide x 300 high)
+    createGoal() {
+        return `
+            <defs>
+                <pattern id="goal-net" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+                    <path d="M 0 0 L 20 20 M 20 0 L 0 20" stroke="#999" stroke-width="1" fill="none"/>
+                </pattern>
+            </defs>
+            <g>
+                <rect x="0" y="0" width="100" height="300" fill="url(#goal-net)" stroke="#777777" stroke-width="4"></rect>
+                <line x1="100" y1="0" x2="100" y2="300" stroke-width="5" stroke="white"></line>
+                <line x1="100" y1="0" x2="100" y2="300" stroke="red" stroke-dasharray="20" stroke-width="6"></line>
+            </g>
+        `;
+    },
+
+    // SVG content for small goal
+    createSmallGoal() {
+        return `
+            <defs>
+                <pattern id="goal-net-small" x="0" y="0" width="10" height="10" patternUnits="userSpaceOnUse">
+                    <path d="M 0 0 L 10 10 M 10 0 L 0 10" stroke="#999" stroke-width="1" fill="none"/>
+                </pattern>
+            </defs>
+            <g>
+                <rect x="0" y="0" width="50" height="100" fill="url(#goal-net-small)" stroke="#777777" stroke-width="3"></rect>
+                <line x1="50" y1="0" x2="50" y2="100" stroke-width="4" stroke="white"></line>
+                <line x1="50" y1="0" x2="50" y2="100" stroke="red" stroke-dasharray="15" stroke-width="5"></line>
+            </g>
+        `;
+    },
+
+    // SVG content for pole
+    createPole(color) {
+        color = color || 'yellow';
+        return `
+            <g>
+                <ellipse cx="45" cy="270" rx="38" ry="18" fill="${color}" stroke="black" stroke-width="4"></ellipse>
+                <rect x="37.5" y="30" width="15" height="240" fill="${color}" stroke="black" stroke-width="4"></rect>
+            </g>
+        `;
+    },
+
+    // Helper: darken a color
+    darkenColor(color, percent) {
+        const num = parseInt(color.replace('#', ''), 16);
+        const amt = Math.round(2.55 * percent);
+        const R = (num >> 16) - amt;
+        const G = (num >> 8 & 0x00FF) - amt;
+        const B = (num & 0x0000FF) - amt;
+        return '#' + (0x1000000 + (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 +
+            (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 +
+            (B < 255 ? B < 1 ? 0 : B : 255))
+            .toString(16).slice(1);
+    },
+
+    // SVG content for ladder (100 x 600 units = 100cm x 6m, vertical, 10 rungs)
+    createLadder() {
+        return `
+            <g stroke="#f39c12" stroke-width="8" fill="none">
+                <line x1="10" y1="10" x2="10" y2="590"/>
+                <line x1="90" y1="10" x2="90" y2="590"/>
+                <line x1="10" y1="40" x2="90" y2="40"/>
+                <line x1="10" y1="100" x2="90" y2="100"/>
+                <line x1="10" y1="160" x2="90" y2="160"/>
+                <line x1="10" y1="220" x2="90" y2="220"/>
+                <line x1="10" y1="280" x2="90" y2="280"/>
+                <line x1="10" y1="340" x2="90" y2="340"/>
+                <line x1="10" y1="400" x2="90" y2="400"/>
+                <line x1="10" y1="460" x2="90" y2="460"/>
+                <line x1="10" y1="520" x2="90" y2="520"/>
+                <line x1="10" y1="580" x2="90" y2="580"/>
+            </g>
+        `;
+    },
+
+    // SVG content for rebounce board (50 x 400 units = 50cm x 4m)
+    createRebounce(color) {
+        color = color || '#d4a574'; // Wooden color
+        const darkerWood = this.darkenColor(color, 15);
+        return `
+            <g>
+                <rect x="0" y="0" width="50" height="400" fill="${color}" stroke="${darkerWood}" stroke-width="4" rx="3"/>
+                <rect x="5" y="5" width="40" height="390" fill="none" stroke="#8B6F47" stroke-width="2" stroke-dasharray="20,10" opacity="0.4"/>
+            </g>
+        `;
+    },
+
+    // SVG content for small wall (50 x 100 units = 50cm x 1m)
+    createSmallWall(color) {
+        color = color || '#8B6F47'; // Brown
+        const darkerColor = this.darkenColor(color, 15);
+        return `
+            <g>
+                <rect x="0" y="0" width="50" height="100" fill="${color}" stroke="${darkerColor}" stroke-width="3"/>
+                <rect x="5" y="5" width="40" height="90" fill="none" stroke="#d4a574" stroke-width="1.5" opacity="0.3"/>
+            </g>
+        `;
+    },
+
+    // SVG content for big wall (50 x 200 units = 50cm x 2m)
+    createBigWall(color) {
+        color = color || '#8B6F47'; // Brown
+        const darkerColor = this.darkenColor(color, 15);
+        return `
+            <g>
+                <rect x="0" y="0" width="50" height="200" fill="${color}" stroke="${darkerColor}" stroke-width="3"/>
+                <rect x="5" y="5" width="40" height="190" fill="none" stroke="#d4a574" stroke-width="1.5" opacity="0.3"/>
+                <line x1="5" y1="100" x2="45" y2="100" stroke="#d4a574" stroke-width="1" opacity="0.4"/>
+            </g>
+        `;
+    },
+
+    // SVG content for small hurdle (100 x 40 units = 100cm x 40cm)
+    createSmallHurdle(color) {
+        color = color || '#f1c40f'; // Yellow
+        const darkerColor = this.darkenColor(color, 20);
+        return `
+            <g>
+                <rect x="15" y="10" width="8" height="28" fill="${color}" stroke="#000" stroke-width="2" rx="2"/>
+                <rect x="77" y="10" width="8" height="28" fill="${color}" stroke="#000" stroke-width="2" rx="2"/>
+                <rect x="10" y="5" width="80" height="12" fill="${color}" stroke="#000" stroke-width="2" rx="3"/>
+            </g>
+        `;
+    },
+
+    // Check if element type supports rotation
+    supportsRotation(type) {
+        return ['goal', 'small-goal', 'ladder', 'rebounce', 'small-wall', 'big-wall', 'small-hurdle'].includes(type);
+    },
+
+    // Setup rotation handling
+    setupRotationHandling() {
+        document.addEventListener('mousemove', (e) => {
+            if (this.isRotating && AppState.selectedElement) {
+                e.preventDefault();
+                this.handleRotationMove(e);
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (this.isRotating) {
+                this.isRotating = false;
+                AppState.saveToLocalStorage();
+                AppState.hidePositionDisplay();
+            }
+        });
+    },
+
+    // Update rotation handle position (lightweight - just moves it, doesn't recreate)
+    updateRotationHandlePosition() {
+        if (!this.rotationHandle || !AppState.selectedElement) return;
+
+        const element = AppState.selectedElement;
+        const canvasRect = AppState.canvas.getBoundingClientRect();
+        const scaleX = canvasRect.width / AppState.boardWidth;
+        const scaleY = canvasRect.height / AppState.boardHeight;
+
+        // Calculate handle position - use board units (150cm) so it scales with zoom
+        const centerX = element.x * scaleX;
+        const centerY = element.y * scaleY;
+        const handleDistanceInBoardUnits = 150;
+        const handleDistance = handleDistanceInBoardUnits * scaleX;
+        const rotationRad = (element.rotation || 0) * Math.PI / 180;
+
+        // Different handle positions for different element types
+        let handleAngle;
+        if (element.type === 'goal' || element.type === 'small-goal') {
+            handleAngle = rotationRad + Math.PI;
+        } else if (element.type === 'ladder') {
+            handleAngle = rotationRad - Math.PI / 2;
+        } else {
+            handleAngle = rotationRad - Math.PI / 2;
+        }
+
+        const handleX = centerX + Math.cos(handleAngle) * handleDistance;
+        const handleY = centerY + Math.sin(handleAngle) * handleDistance;
+
+        const handleSize = Math.max(20 * scaleX, 15);
+
+        this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
+        this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
+    },
+
+    // Update rotation handle position
+    updateRotationHandle() {
+        // Remove existing handle
+        if (this.rotationHandle) {
+            this.rotationHandle.remove();
+            this.rotationHandle = null;
+        }
+
+        // Only show handle if an element is selected, supports rotation, and is not locked
+        if (AppState.selectedElement && this.supportsRotation(AppState.selectedElement.type) && !AppState.selectedElement.inherited) {
+            const element = AppState.selectedElement;
+            const canvasRect = AppState.canvas.getBoundingClientRect();
+            const scaleX = canvasRect.width / AppState.boardWidth;
+            const scaleY = canvasRect.height / AppState.boardHeight;
+
+            // Calculate handle position - use board units (150cm) so it scales with zoom
+            const centerX = element.x * scaleX;
+            const centerY = element.y * scaleY;
+            const handleDistanceInBoardUnits = 150;
+            const handleDistance = handleDistanceInBoardUnits * scaleX;
+            const rotationRad = (element.rotation || 0) * Math.PI / 180;
+
+            // Different handle positions for different element types
+            let handleAngle;
+            if (element.type === 'goal' || element.type === 'small-goal') {
+                // For goals: handle behind the goal (on the net side)
+                // Goal line points in the direction of rotation, so handle goes opposite
+                handleAngle = rotationRad + Math.PI;
+            } else if (element.type === 'ladder') {
+                // For ladder: handle above (perpendicular)
+                handleAngle = rotationRad - Math.PI / 2;
+            } else {
+                // Default: handle above
+                handleAngle = rotationRad - Math.PI / 2;
+            }
+
+            const handleX = centerX + Math.cos(handleAngle) * handleDistance;
+            const handleY = centerY + Math.sin(handleAngle) * handleDistance;
+
+            // Handle size scales with board (20cm in board units)
+            const handleSize = Math.max(20 * scaleX, 15); // minimum 15px
+
+            // Create rotation handle
+            this.rotationHandle = document.createElement('div');
+            this.rotationHandle.className = 'rotation-handle';
+            this.rotationHandle.style.width = handleSize + 'px';
+            this.rotationHandle.style.height = handleSize + 'px';
+            this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
+            this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
+
+            // Add event listener
+            this.rotationHandle.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.isRotating = true;
+                AppState.updatePositionDisplay(element.x, element.y, element, 'element');
+            });
+
+            this.layer.appendChild(this.rotationHandle);
+        }
+    },
+
+    // Handle rotation movement
+    handleRotationMove(e) {
+        const element = AppState.selectedElement;
+        if (!element) return;
+
+        const canvasRect = AppState.canvas.getBoundingClientRect();
+        const scaleX = canvasRect.width / AppState.boardWidth;
+        const scaleY = canvasRect.height / AppState.boardHeight;
+
+        const centerX = element.x * scaleX;
+        const centerY = element.y * scaleY;
+
+        const mouseX = e.clientX - canvasRect.left;
+        const mouseY = e.clientY - canvasRect.top;
+
+        // Calculate angle from center to mouse
+        const angle = Math.atan2(mouseY - centerY, mouseX - centerX);
+        let degrees = angle * 180 / Math.PI;
+
+        // Adjust based on handle position for different element types
+        if (element.type === 'goal' || element.type === 'small-goal') {
+            // Handle is behind (180° offset), so subtract 180° to get element rotation
+            degrees = degrees - 180;
+        } else {
+            // Handle is perpendicular (-90° offset), so add 90° to get element rotation
+            degrees = degrees + 90;
+        }
+
+        // Normalize to 0-360
+        element.rotation = ((degrees % 360) + 360) % 360;
+
+        // Update display
+        AppState.updatePositionDisplay(element.x, element.y, element, 'element');
+
+        // Update SVG transform directly without full re-render
+        const elementSvg = document.getElementById(element.id);
+        if (elementSvg) {
+            // Get element dimensions and anchor
+            const anchor = this.getAnchor(element.type);
+            let width, height;
+
+            switch (element.type) {
+                case 'cone':
+                    width = 100 * scaleX;
+                    height = 120 * scaleY;
+                    break;
+                case 'goal':
+                    width = 100 * scaleX;
+                    height = 300 * scaleY;
+                    break;
+                case 'small-goal':
+                    width = 50 * scaleX;
+                    height = 100 * scaleY;
+                    break;
+                case 'pole':
+                    width = 90 * scaleX;
+                    height = 300 * scaleY;
+                    break;
+                case 'ladder':
+                    width = 100 * scaleX;
+                    height = 600 * scaleY;
+                    break;
+                default:
+                    width = 100 * scaleX;
+                    height = 100 * scaleY;
+            }
+
+            // Update rotation with correct transform
+            elementSvg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${element.rotation}deg)`;
+            elementSvg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
+        }
+
+        // Update rotation handle position
+        this.updateRotationHandlePosition();
+    }
+};

@@ -1,0 +1,417 @@
+.board-container {
+    flex: 1;
+    position: relative;
+    background-color: #d9a66a;
+    background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='120'><rect width='600' height='120' fill='%23d9a66a'/><g stroke='%237a5832' stroke-width='0.6'><g fill='%23e6bb7f'><rect x='0' y='0' width='300' height='12'/><rect x='300' y='0' width='300' height='12'/></g><g fill='%23ebc996'><rect x='-40' y='12' width='300' height='12'/><rect x='260' y='12' width='300' height='12'/><rect x='560' y='12' width='300' height='12'/></g><g fill='%23f0d7a8'><rect x='-120' y='24' width='300' height='12'/><rect x='180' y='24' width='300' height='12'/><rect x='480' y='24' width='300' height='12'/></g><g fill='%23e4c08d'><rect x='-200' y='36' width='300' height='12'/><rect x='100' y='36' width='300' height='12'/><rect x='400' y='36' width='300' height='12'/></g><g fill='%23efd3a3'><rect x='-80' y='48' width='300' height='12'/><rect x='220' y='48' width='300' height='12'/><rect x='520' y='48' width='300' height='12'/></g><g fill='%23e9c894'><rect x='-160' y='60' width='300' height='12'/><rect x='140' y='60' width='300' height='12'/><rect x='440' y='60' width='300' height='12'/></g><g fill='%23f2deb5'><rect x='-20' y='72' width='300' height='12'/><rect x='280' y='72' width='320' height='12'/></g><g fill='%23e3c18c'><rect x='-100' y='84' width='300' height='12'/><rect x='200' y='84' width='300' height='12'/><rect x='500' y='84' width='300' height='12'/></g><g fill='%23edd2a6'><rect x='-220' y='96' width='300' height='12'/><rect x='80' y='96' width='300' height='12'/><rect x='380' y='96' width='300' height='12'/></g><g fill='%23e7c795'><rect x='-60' y='108' width='300' height='12'/><rect x='240' y='108' width='300' height='12'/><rect x='540' y='108' width='300' height='12'/></g></g></svg>");
+    background-repeat: repeat;
+    background-position: center center;
+    background-size: 600px 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    cursor: default;
+    touch-action: none;
+}
+
+#court-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.8;
+}
+
+#board-canvas {
+    position: absolute;
+    display: block;
+    z-index: 1;
+    opacity: 0;
+    pointer-events: auto;
+}
+
+#paths-layer {
+    position: absolute;
+    z-index: 2;
+    pointer-events: none;
+}
+
+#paths-layer .path-line-visible,
+#paths-layer .path-parent-circle {
+    pointer-events: none;
+}
+
+.path-line-visible.path-selected,
+.path-parent-circle.path-selected {
+    filter: drop-shadow(0 0 20px rgba(255, 255, 255, 1))
+            drop-shadow(0 0 12px rgba(255, 255, 255, 1))
+            drop-shadow(0 0 8px rgba(255, 255, 255, 1))
+            drop-shadow(0 0 4px rgba(255, 255, 255, 1));
+}
+
+.ghost-player {
+    overflow: visible !important;
+}
+
+.ghost-player.ghost-selected,
+.ghost-ball.ghost-selected {
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 1)) drop-shadow(0 0 6px rgba(255, 255, 255, 1));
+}
+
+.ghost-rotation-handle {
+    pointer-events: all !important;
+}
+
+#drawing-layer {
+    position: absolute;
+    z-index: 3;
+    pointer-events: none;
+}
+
+#drawing-layer.drawing {
+    pointer-events: all;
+}
+
+#players-layer {
+    position: absolute;
+    z-index: 4;
+    touch-action: none;
+    pointer-events: none;
+}
+
+#board-area {
+    position: absolute;
+}
+
+#board-area > * {
+    pointer-events: auto;
+}
+
+.player {
+    position: absolute;
+    /* Size is set dynamically in JS based on board scale */
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    color: white;
+    cursor: default;
+    user-select: none;
+    transition: transform 0.1s;
+    z-index: 5;
+}
+
+.player::before {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background-color: inherit;
+    border: 3px solid rgba(255,255,255,0.3);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    z-index: 1;
+}
+
+.player-arms {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.player-arm {
+    position: absolute;
+    top: 0%;
+    border-radius: 25%;
+    border: 2px solid rgba(255,255,255,0.4);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.player-arm-left {
+    right: -60%;
+    transform-origin: right center;
+    transform: translateY(-50%) rotate(-45deg);
+}
+
+.player-arm-right {
+    left: -60%;
+    transform-origin: left center;
+    transform: translateY(-50%) rotate(45deg);
+}
+
+.player-number {
+    position: relative;
+    z-index: 10;
+}
+
+.player-name {
+    z-index: 10;
+}
+
+.player:hover {
+    transform: scale(1.1);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.4);
+}
+
+.player.dragging {
+    opacity: 0.7;
+    z-index: 1000;
+    cursor: default;
+}
+
+.player.selected {
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 1)) drop-shadow(0 0 6px rgba(255, 255, 255, 1));
+}
+
+.player.animating {
+    transition: all 0.5s ease-in-out;
+}
+
+.arrow {
+    stroke-width: 3;
+    fill: none;
+    marker-end: url(#arrowhead);
+}
+
+.line {
+    stroke-width: 3;
+    fill: none;
+}
+
+.temp {
+    stroke-dasharray: 5, 5;
+    opacity: 0.6;
+}
+
+/* Arrow marker */
+marker {
+    overflow: visible;
+}
+
+.element-svg {
+    pointer-events: all;
+    z-index: 3;
+}
+
+.element-svg.element-selected {
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 1)) drop-shadow(0 0 6px rgba(255, 255, 255, 1));
+}
+
+.element-svg.element-inherited.element-selected,
+.plate-svg.plate-inherited.plate-selected {
+    filter: drop-shadow(0 0 12px rgba(255, 0, 0, 1)) drop-shadow(0 0 6px rgba(255, 0, 0, 1));
+}
+
+.element-svg.element-selected:active {
+    cursor: default;
+}
+
+.rotation-handle {
+    position: absolute;
+    background: #f39c12;
+    border: 3px solid white;
+    border-radius: 50%;
+    cursor: default;
+    z-index: 1001;
+    pointer-events: all;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    touch-action: none;
+}
+
+.rotation-handle:hover {
+    background: #e67e22;
+    transform: scale(1.2);
+}
+
+.rotation-handle:active {
+    cursor: default;
+    background: #d35400;
+}
+
+.ball-svg {
+    pointer-events: all;
+    z-index: 4;
+}
+
+.ball-svg.ball-selected {
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 1)) drop-shadow(0 0 6px rgba(255, 255, 255, 1));
+}
+
+.ball-svg:active {
+    cursor: default;
+}
+
+.plate-svg {
+    pointer-events: all;
+    z-index: 2;
+}
+
+.plate-svg.plate-selected {
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 1)) drop-shadow(0 0 6px rgba(255, 255, 255, 1));
+}
+
+.plate-svg:active {
+    cursor: default;
+}
+
+.shape-svg {
+    pointer-events: all;
+    z-index: 1;
+}
+
+.shape-svg.shape-selected {
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 1)) drop-shadow(0 0 6px rgba(255, 255, 255, 1));
+}
+
+.shape-svg.shape-locked.shape-selected {
+    filter: drop-shadow(0 0 12px rgba(255, 0, 0, 1)) drop-shadow(0 0 6px rgba(255, 0, 0, 1));
+}
+
+.shape-svg:active {
+    cursor: default;
+}
+
+.position-display {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: #1e3c72;
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-family: monospace;
+    font-size: 14px;
+    font-weight: 600;
+    z-index: 1000;
+    pointer-events: all;
+    user-select: none;
+    cursor: default;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15), 0 1px 4px rgba(0,0,0,0.08);
+    border: 1.5px solid rgba(79, 172, 254, 0.5);
+    transition: all 0.2s;
+}
+
+.position-display:hover {
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+    transform: translateY(-1px);
+    border-color: #4facfe;
+}
+
+.position-display.hidden {
+    display: none;
+}
+
+.frame-speed-control {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: #1e3c72;
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    z-index: 1000;
+    pointer-events: all;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15), 0 1px 4px rgba(0,0,0,0.08);
+    border: 1.5px solid rgba(79, 172, 254, 0.5);
+    transition: all 0.2s;
+}
+
+.frame-speed-control:hover {
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+    transform: translateY(-1px);
+    border-color: #4facfe;
+}
+
+.frame-speed-control label {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: #1e3c72;
+}
+
+.frame-speed-dropdown {
+    background: rgba(255, 255, 255, 0.95);
+    color: #1e3c72;
+    border: 1.5px solid rgba(79, 172, 254, 0.4);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.frame-speed-dropdown:hover {
+    border-color: #4facfe;
+    background: white;
+}
+
+.frame-speed-dropdown:focus {
+    border-color: #4facfe;
+    box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.15);
+}
+
+.recording-progress {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1001;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 6px 0 8px;
+    background: rgba(0, 0, 0, 0.55);
+    gap: 4px;
+}
+
+.recording-progress.hidden {
+    display: none;
+}
+
+.recording-progress-bar {
+    width: calc(100% - 24px);
+    height: 6px;
+    background: rgba(255, 255, 255, 0.25);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.recording-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #11998e, #38ef7d);
+    border-radius: 3px;
+    transition: width 0.1s linear;
+}
+
+.recording-progress-label {
+    font-family: monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+    user-select: none;
+}

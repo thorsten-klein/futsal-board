@@ -1,0 +1,28 @@
+{
+  "name": "futsal-board",
+  "version": "1.0.0",
+  "description": "A fully client-side, offline-capable futsal tactics board for coaches. No build step, no server required — open `index.html` directly in a browser or serve with `serve.sh`.",
+  "main": "index.js",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:update-snapshots": "playwright test --update-snapshots"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thorsten-klein/futsal-board.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/thorsten-klein/futsal-board/issues"
+  },
+  "homepage": "https://github.com/thorsten-klein/futsal-board#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "nyc": "^18.0.0",
+    "v8-to-istanbul": "^9.3.0"
+  }
+}

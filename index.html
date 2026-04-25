@@ -1,0 +1,3254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Futsal Tactics Board</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+
+    <!-- Styles inlined so html-to-image can read cssRules when opened as file:// -->
+    <style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* Prevent text cursor on non-text elements; specific rules below override as needed */
+*, *::before, *::after {
+    cursor: default;
+}
+
+input, textarea, select {
+    cursor: pointer;
+}
+
+button, .btn, .tool-btn, .team-color-picker, .formation-item {
+    cursor: pointer;
+}
+
+/* Sidebar drag sources — show grab hand */
+.element-btn, .draw-btn, .ball-template, .plate-template, .team-player-template {
+    cursor: grab;
+}
+
+/* Make all children inherit the grab cursor so hovering anywhere on the button
+   shows the grab hand (the global * { cursor: default } would otherwise override
+   CSS inheritance on every descendant). Also cover ::before/::after pseudo-elements
+   (e.g. the circular ring overlay on team-player-template) which are not matched
+   by the * selector but can still receive pointer events. */
+.element-btn *, .draw-btn *, .ball-template *, .plate-template *, .team-player-template *,
+.element-btn::before, .element-btn::after,
+.draw-btn::before, .draw-btn::after,
+.ball-template::before, .ball-template::after,
+.plate-template::before, .plate-template::after,
+.team-player-template::before, .team-player-template::after {
+    cursor: inherit;
+}
+
+.element-btn:active, .draw-btn:active, .ball-template:active, .plate-template:active, .team-player-template:active {
+    cursor: grabbing;
+}
+
+.player {
+    cursor: default;
+}
+
+.element-svg {
+    cursor: default;
+}
+
+.element-svg.element-selected, .ball-svg {
+    cursor: default;
+}
+
+.player:active {
+    cursor: default;
+}
+
+.element-svg.element-selected:active, .ball-svg:active {
+    cursor: default;
+}
+
+/* Crosshair for drawing tools — child override needs !important to beat element class rules */
+.board-container.crosshair-cursor {
+    cursor: crosshair;
+}
+.board-container.crosshair-cursor * {
+    cursor: crosshair !important;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: linear-gradient(160deg, #e8edf5 0%, #f0f4fa 50%, #f5f5f5 100%);
+    overflow: hidden;
+    cursor: default;
+}
+
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+/* Header */
+.header {
+    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 60%, #1e6091 100%);
+    color: white;
+    padding: 0.4rem 0.75rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 3px 12px rgba(30, 60, 114, 0.4);
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.header-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    user-select: none;
+    cursor: default;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+}
+
+.workbook-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: white;
+    cursor: pointer;
+    padding: 0.15rem 0.3rem;
+    border-radius: 6px;
+    transition: all 0.2s;
+    user-select: none;
+    display: inline-block;
+}
+
+.workbook-name:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.board-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: white;
+    cursor: pointer;
+    padding: 0.15rem 0.3rem;
+    border-radius: 6px;
+    transition: all 0.2s;
+    user-select: none;
+    display: inline-block;
+}
+
+.board-name:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: #90cdf4;
+}
+
+/* Breadcrumb navigation bar */
+.board-breadcrumb {
+    background: #162d5a;
+    padding: 0.2rem 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+    font-size: 0.75rem;
+    min-height: 26px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.board-breadcrumb.hidden {
+    display: none;
+}
+
+.breadcrumb-item {
+    color: rgba(255, 255, 255, 0.85);
+    cursor: pointer;
+    padding: 0.1rem 0.3rem;
+    border-radius: 4px;
+    transition: background 0.15s;
+    user-select: none;
+}
+
+.breadcrumb-item:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.breadcrumb-item.current {
+    font-weight: 600;
+    color: white;
+    cursor: default;
+}
+
+.breadcrumb-item.current:hover {
+    background: none;
+}
+
+.breadcrumb-item.grayed {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.breadcrumb-item.grayed:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.breadcrumb-sep {
+    color: rgba(255, 255, 255, 0.3);
+    user-select: none;
+    font-size: 0.8rem;
+}
+
+.header-controls {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+    .header {
+        padding: 0.3rem 0.5rem;
+        gap: 0.4rem;
+    }
+
+    .header-title {
+        font-size: 0.75rem;
+        gap: 0.25rem;
+        flex: 1 1 100%;
+    }
+
+    .workbook-name,
+    .board-name {
+        font-size: 0.75rem;
+        padding: 0.1rem 0.25rem;
+    }
+
+    .header-controls {
+        flex: 1 1 100%;
+        justify-content: flex-start;
+        gap: 0.3rem;
+    }
+
+    .btn {
+        padding: 0.3rem 0.5rem;
+        font-size: 0.7rem;
+        gap: 0.25rem;
+    }
+
+    .btn svg {
+        width: 12px;
+        height: 12px;
+    }
+
+    /* Hide button text on very small screens, keep icons */
+    .btn span:not(:only-child) {
+        display: none;
+    }
+}
+
+@media (max-width: 480px) {
+    .header {
+        padding: 0.3rem 0.4rem;
+    }
+
+    .header-title {
+        font-size: 0.7rem;
+        gap: 0.2rem;
+    }
+
+    .workbook-name,
+    .board-name {
+        font-size: 0.7rem;
+        padding: 0.1rem 0.2rem;
+    }
+
+    .btn {
+        padding: 0.25rem 0.4rem;
+        font-size: 0.65rem;
+    }
+
+    .btn svg {
+        width: 10px;
+        height: 10px;
+    }
+
+    .sidebar-toggle-btn svg {
+        width: 16px;
+        height: 16px;
+    }
+}
+
+/* Main Content */
+.main-content {
+    display: flex;
+    flex: 1;
+    overflow-x: hidden;
+    overflow-y: hidden;
+    position: relative;
+}
+
+/* Buttons */
+.btn {
+    padding: 0.35rem 0.65rem;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    transition: all 0.2s;
+    user-select: none;
+}
+
+.btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+}
+
+.btn:active {
+    transform: translateY(0);
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #4facfe 0%, #2980b9 100%);
+    color: white;
+    box-shadow: 0 2px 6px rgba(41, 128, 185, 0.35);
+}
+
+.btn-primary:hover {
+    background: linear-gradient(135deg, #74bfff 0%, #3498db 100%);
+    box-shadow: 0 4px 14px rgba(41, 128, 185, 0.45);
+}
+
+.btn-primary:disabled {
+    background: linear-gradient(135deg, #bdc3c7, #95a5a6);
+    box-shadow: none;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.btn-secondary {
+    background: linear-gradient(135deg, #f5f7fa 0%, #dde3ec 100%);
+    color: #2c3e50;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
+.btn-secondary:hover {
+    background: linear-gradient(135deg, #e2e8f0 0%, #c8d3e0 100%);
+}
+
+.btn-secondary:disabled {
+    background: linear-gradient(135deg, #f5f7fa, #ecf0f1);
+    color: #95a5a6;
+    cursor: not-allowed;
+    transform: none;
+    opacity: 0.5;
+    box-shadow: none;
+}
+
+.btn-full {
+    width: 100%;
+}
+
+/* Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal-content {
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    padding: 2rem;
+    border-radius: 16px;
+    min-width: 400px;
+    max-width: 90vw;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.25), 0 2px 8px rgba(0,0,0,0.1);
+    border: 1px solid rgba(255,255,255,0.8);
+}
+
+.modal-content h2 {
+    margin-bottom: 1.5rem;
+    color: #1e3c72;
+    user-select: none;
+    cursor: default;
+    background: linear-gradient(135deg, #1e3c72, #2a5298);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: #2c3e50;
+    font-weight: 500;
+    user-select: none;
+    cursor: default;
+}
+
+.form-input {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1.5px solid #dde3ec;
+    border-radius: 8px;
+    font-size: 1rem;
+    cursor: pointer;
+    background: #fafbfc;
+    transition: all 0.2s;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: #4facfe;
+    box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.18);
+    background: #fff;
+}
+
+.modal-buttons {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+    margin-top: 2rem;
+}
+
+.formations-list {
+    max-height: 400px;
+    overflow-y: auto;
+    margin-bottom: 1rem;
+}
+
+.formation-item {
+    padding: 1rem;
+    border: 1.5px solid #dde3ec;
+    border-radius: 10px;
+    margin-bottom: 0.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+    background: #fafbfc;
+}
+
+.formation-item:hover {
+    background: linear-gradient(135deg, #f0f7ff 0%, #e8f4fd 100%);
+    border-color: #4facfe;
+    box-shadow: 0 2px 8px rgba(79, 172, 254, 0.15);
+}
+
+.formation-item-name {
+    font-weight: 500;
+    color: #2c3e50;
+}
+
+.formation-item-date {
+    font-size: 0.85rem;
+    color: #7f8c8d;
+}
+
+.formation-item-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.btn-icon {
+    padding: 0.5rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #e74c3c;
+    transition: color 0.2s;
+}
+
+.btn-icon:hover {
+    color: #c0392b;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 2rem;
+    color: #7f8c8d;
+}
+
+/* Ball Container */
+.ball-container {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+
+.ball-template {
+    cursor: grab;
+    user-select: none;
+    flex-shrink: 0;
+    transition: transform 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ball-template svg {
+    pointer-events: none;
+    width: 100%;
+    height: 100%;
+}
+
+.ball-template:hover {
+    transform: scale(1.1);
+}
+
+/* Plate Container */
+.plate-container {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+
+.plate-template {
+    cursor: grab;
+    user-select: none;
+    flex-shrink: 0;
+    transition: transform 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.plate-template svg {
+    pointer-events: none;
+    width: 100%;
+    height: 100%;
+}
+
+.plate-template:hover {
+    transform: scale(1.1);
+}
+
+/* Elements Grid */
+.elements-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.element-btn {
+    flex: 0 0 auto;
+    width: 72px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0.75rem 0.5rem;
+    background: linear-gradient(160deg, #ffffff 0%, #f5f7fa 100%);
+    border: 1.5px solid #dde3ec;
+    border-radius: 12px;
+    cursor: grab;
+    transition: all 0.2s;
+    gap: 0.25rem;
+    user-select: none;
+    min-height: 80px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+.element-btn:hover, .draw-btn:hover {
+    background: linear-gradient(160deg, #f0f7ff 0%, #e8f4fd 100%);
+    border-color: #4facfe;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(79, 172, 254, 0.25);
+}
+
+.draw-btn {
+    flex: 0 0 auto;
+    width: 72px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0.75rem 0.5rem;
+    background: linear-gradient(160deg, #ffffff 0%, #f5f7fa 100%);
+    border: 1.5px solid #dde3ec;
+    border-radius: 12px;
+    cursor: grab;
+    transition: all 0.2s;
+    gap: 0.25rem;
+    user-select: none;
+    min-height: 80px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+.element-btn svg {
+    display: block;
+    pointer-events: none;
+    max-width: 100%;
+    max-height: 100%;
+}
+
+.element-btn span {
+    font-size: 0.75rem;
+    color: #2c3e50;
+    font-weight: 500;
+    user-select: none;
+    pointer-events: none;
+}
+
+.element-btn:active {
+    transform: translateY(0);
+}
+
+.board-container.drag-over {
+    outline: 3px dashed #4facfe;
+    outline-offset: -5px;
+}
+
+/* Context Menu */
+.context-menu {
+    position: fixed;
+    background: linear-gradient(160deg, #ffffff 0%, #f8fafc 100%);
+    border: 1px solid #dde3ec;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15), 0 2px 6px rgba(0,0,0,0.08);
+    z-index: 10000;
+    min-width: 180px;
+    overflow: hidden;
+}
+
+.context-menu.hidden {
+    display: none;
+}
+
+.context-menu-item {
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
+}
+
+.context-menu-item:hover {
+    background: linear-gradient(90deg, #f0f7ff 0%, #e8f4fd 100%);
+}
+
+.context-menu-item.disabled {
+    color: #ccc;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.context-menu-item.disabled svg {
+    stroke: #ccc;
+}
+
+.context-menu-item svg {
+    flex-shrink: 0;
+}
+
+.context-menu-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #dde3ec, transparent);
+    margin: 0.25rem 0;
+}
+
+/* Color Input */
+.color-input {
+    width: 100%;
+    height: 50px;
+    border: 1.5px solid #dde3ec;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.color-presets {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.color-preset {
+    width: 100%;
+    aspect-ratio: 1;
+    border: 2px solid #dde3ec;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.color-preset:hover {
+    transform: scale(1.1);
+    border-color: #4facfe;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.2);
+}
+
+/* Position Input Group */
+.position-input-group {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.position-input {
+    flex: 1;
+}
+
+.position-btn {
+    width: 40px;
+    height: 40px;
+    border: 2px solid #4facfe;
+    background: linear-gradient(135deg, #f5f7fa, #e8f4fd);
+    color: #2980b9;
+    border-radius: 8px;
+    font-size: 1.2rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+}
+
+.position-btn:hover {
+    background: linear-gradient(135deg, #4facfe, #2980b9);
+    color: white;
+    transform: scale(1.05);
+    box-shadow: 0 3px 8px rgba(79, 172, 254, 0.4);
+}
+
+.position-btn:active {
+    transform: scale(0.95);
+}
+
+/* Toast notifications */
+.toast-container {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+}
+
+.toast {
+    background: linear-gradient(135deg, #2c3e50, #34495e);
+    color: white;
+    padding: 16px 32px;
+    border-radius: 14px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0,0,0,0.15);
+    min-width: 300px;
+    max-width: 500px;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: auto;
+    font-size: 16px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    text-align: center;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.toast.success {
+    background: linear-gradient(135deg, #11998e, #38ef7d);
+}
+
+.toast.error {
+    background: linear-gradient(135deg, #c0392b, #e74c3c);
+}
+
+.toast.info {
+    background: linear-gradient(135deg, #2980b9, #4facfe);
+}
+    </style>
+    <style>
+.board-container {
+    flex: 1;
+    position: relative;
+    background-color: #d9a66a;
+    background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='120'><rect width='600' height='120' fill='%23d9a66a'/><g stroke='%237a5832' stroke-width='0.6'><g fill='%23e6bb7f'><rect x='0' y='0' width='300' height='12'/><rect x='300' y='0' width='300' height='12'/></g><g fill='%23ebc996'><rect x='-40' y='12' width='300' height='12'/><rect x='260' y='12' width='300' height='12'/><rect x='560' y='12' width='300' height='12'/></g><g fill='%23f0d7a8'><rect x='-120' y='24' width='300' height='12'/><rect x='180' y='24' width='300' height='12'/><rect x='480' y='24' width='300' height='12'/></g><g fill='%23e4c08d'><rect x='-200' y='36' width='300' height='12'/><rect x='100' y='36' width='300' height='12'/><rect x='400' y='36' width='300' height='12'/></g><g fill='%23efd3a3'><rect x='-80' y='48' width='300' height='12'/><rect x='220' y='48' width='300' height='12'/><rect x='520' y='48' width='300' height='12'/></g><g fill='%23e9c894'><rect x='-160' y='60' width='300' height='12'/><rect x='140' y='60' width='300' height='12'/><rect x='440' y='60' width='300' height='12'/></g><g fill='%23f2deb5'><rect x='-20' y='72' width='300' height='12'/><rect x='280' y='72' width='320' height='12'/></g><g fill='%23e3c18c'><rect x='-100' y='84' width='300' height='12'/><rect x='200' y='84' width='300' height='12'/><rect x='500' y='84' width='300' height='12'/></g><g fill='%23edd2a6'><rect x='-220' y='96' width='300' height='12'/><rect x='80' y='96' width='300' height='12'/><rect x='380' y='96' width='300' height='12'/></g><g fill='%23e7c795'><rect x='-60' y='108' width='300' height='12'/><rect x='240' y='108' width='300' height='12'/><rect x='540' y='108' width='300' height='12'/></g></g></svg>");
+    background-repeat: repeat;
+    background-position: center center;
+    background-size: 600px 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    cursor: default;
+    touch-action: none;
+}
+
+#court-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.8;
+}
+
+#board-canvas {
+    position: absolute;
+    display: block;
+    z-index: 1;
+    opacity: 0;
+    pointer-events: auto;
+}
+
+#paths-layer {
+    position: absolute;
+    z-index: 2;
+    pointer-events: none;
+}
+
+#paths-layer .path-line-visible,
+#paths-layer .path-parent-circle {
+    pointer-events: none;
+}
+
+.path-line-visible.path-selected,
+.path-parent-circle.path-selected {
+    filter: drop-shadow(0 0 20px rgba(255, 255, 255, 1))
+            drop-shadow(0 0 12px rgba(255, 255, 255, 1))
+            drop-shadow(0 0 8px rgba(255, 255, 255, 1))
+            drop-shadow(0 0 4px rgba(255, 255, 255, 1));
+}
+
+.ghost-player {
+    overflow: visible !important;
+}
+
+.ghost-player.ghost-selected,
+.ghost-ball.ghost-selected {
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 1)) drop-shadow(0 0 6px rgba(255, 255, 255, 1));
+}
+
+.ghost-rotation-handle {
+    pointer-events: all !important;
+}
+
+#drawing-layer {
+    position: absolute;
+    z-index: 3;
+    pointer-events: none;
+}
+
+#drawing-layer.drawing {
+    pointer-events: all;
+}
+
+#players-layer {
+    position: absolute;
+    z-index: 4;
+    touch-action: none;
+    pointer-events: none;
+}
+
+#board-area {
+    position: absolute;
+}
+
+#board-area > * {
+    pointer-events: auto;
+}
+
+.player {
+    position: absolute;
+    /* Size is set dynamically in JS based on board scale */
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    color: white;
+    cursor: default;
+    user-select: none;
+    transition: transform 0.1s;
+    z-index: 5;
+}
+
+.player::before {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background-color: inherit;
+    border: 3px solid rgba(255,255,255,0.3);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    z-index: 1;
+}
+
+.player-arms {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.player-arm {
+    position: absolute;
+    top: 0%;
+    border-radius: 25%;
+    border: 2px solid rgba(255,255,255,0.4);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.player-arm-left {
+    right: -60%;
+    transform-origin: right center;
+    transform: translateY(-50%) rotate(-45deg);
+}
+
+.player-arm-right {
+    left: -60%;
+    transform-origin: left center;
+    transform: translateY(-50%) rotate(45deg);
+}
+
+.player-number {
+    position: relative;
+    z-index: 10;
+}
+
+.player-name {
+    z-index: 10;
+}
+
+.player:hover {
+    transform: scale(1.1);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.4);
+}
+
+.player.dragging {
+    opacity: 0.7;
+    z-index: 1000;
+    cursor: default;
+}
+
+.player.selected {
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 1)) drop-shadow(0 0 6px rgba(255, 255, 255, 1));
+}
+
+.player.animating {
+    transition: all 0.5s ease-in-out;
+}
+
+.arrow {
+    stroke-width: 3;
+    fill: none;
+    marker-end: url(#arrowhead);
+}
+
+.line {
+    stroke-width: 3;
+    fill: none;
+}
+
+.temp {
+    stroke-dasharray: 5, 5;
+    opacity: 0.6;
+}
+
+/* Arrow marker */
+marker {
+    overflow: visible;
+}
+
+.element-svg {
+    pointer-events: all;
+    z-index: 3;
+}
+
+.element-svg.element-selected {
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 1)) drop-shadow(0 0 6px rgba(255, 255, 255, 1));
+}
+
+.element-svg.element-inherited.element-selected,
+.plate-svg.plate-inherited.plate-selected {
+    filter: drop-shadow(0 0 12px rgba(255, 0, 0, 1)) drop-shadow(0 0 6px rgba(255, 0, 0, 1));
+}
+
+.element-svg.element-selected:active {
+    cursor: default;
+}
+
+.rotation-handle {
+    position: absolute;
+    background: #f39c12;
+    border: 3px solid white;
+    border-radius: 50%;
+    cursor: default;
+    z-index: 1001;
+    pointer-events: all;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    touch-action: none;
+}
+
+.rotation-handle:hover {
+    background: #e67e22;
+    transform: scale(1.2);
+}
+
+.rotation-handle:active {
+    cursor: default;
+    background: #d35400;
+}
+
+.ball-svg {
+    pointer-events: all;
+    z-index: 4;
+}
+
+.ball-svg.ball-selected {
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 1)) drop-shadow(0 0 6px rgba(255, 255, 255, 1));
+}
+
+.ball-svg:active {
+    cursor: default;
+}
+
+.plate-svg {
+    pointer-events: all;
+    z-index: 2;
+}
+
+.plate-svg.plate-selected {
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 1)) drop-shadow(0 0 6px rgba(255, 255, 255, 1));
+}
+
+.plate-svg:active {
+    cursor: default;
+}
+
+.shape-svg {
+    pointer-events: all;
+    z-index: 1;
+}
+
+.shape-svg.shape-selected {
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 1)) drop-shadow(0 0 6px rgba(255, 255, 255, 1));
+}
+
+.shape-svg.shape-locked.shape-selected {
+    filter: drop-shadow(0 0 12px rgba(255, 0, 0, 1)) drop-shadow(0 0 6px rgba(255, 0, 0, 1));
+}
+
+.shape-svg:active {
+    cursor: default;
+}
+
+.position-display {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: #1e3c72;
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-family: monospace;
+    font-size: 14px;
+    font-weight: 600;
+    z-index: 1000;
+    pointer-events: all;
+    user-select: none;
+    cursor: default;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15), 0 1px 4px rgba(0,0,0,0.08);
+    border: 1.5px solid rgba(79, 172, 254, 0.5);
+    transition: all 0.2s;
+}
+
+.position-display:hover {
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+    transform: translateY(-1px);
+    border-color: #4facfe;
+}
+
+.position-display.hidden {
+    display: none;
+}
+
+.frame-speed-control {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: #1e3c72;
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    z-index: 1000;
+    pointer-events: all;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15), 0 1px 4px rgba(0,0,0,0.08);
+    border: 1.5px solid rgba(79, 172, 254, 0.5);
+    transition: all 0.2s;
+}
+
+.frame-speed-control:hover {
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+    transform: translateY(-1px);
+    border-color: #4facfe;
+}
+
+.frame-speed-control label {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: #1e3c72;
+}
+
+.frame-speed-dropdown {
+    background: rgba(255, 255, 255, 0.95);
+    color: #1e3c72;
+    border: 1.5px solid rgba(79, 172, 254, 0.4);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.frame-speed-dropdown:hover {
+    border-color: #4facfe;
+    background: white;
+}
+
+.frame-speed-dropdown:focus {
+    border-color: #4facfe;
+    box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.15);
+}
+
+.recording-progress {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1001;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 6px 0 8px;
+    background: rgba(0, 0, 0, 0.55);
+    gap: 4px;
+}
+
+.recording-progress.hidden {
+    display: none;
+}
+
+.recording-progress-bar {
+    width: calc(100% - 24px);
+    height: 6px;
+    background: rgba(255, 255, 255, 0.25);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.recording-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #11998e, #38ef7d);
+    border-radius: 3px;
+    transition: width 0.1s linear;
+}
+
+.recording-progress-label {
+    font-family: monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+    user-select: none;
+}
+    </style>
+    <style>
+.toolbar {
+    width: 280px;
+    min-width: 200px;
+    max-width: 600px;
+    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+    padding: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    border-right: 1px solid #dde3ec;
+    cursor: default;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    position: relative;
+}
+
+.toolbar.hidden {
+    display: none;
+}
+
+.sidebar-toggle-btn {
+    width: 36px;
+    height: 36px;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1.5px solid rgba(255, 255, 255, 0.35);
+    border-radius: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    margin-right: 0.75rem;
+    flex-shrink: 0;
+}
+
+.sidebar-toggle-btn svg {
+    stroke: white;
+}
+
+.sidebar-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.6);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.sidebar-toggle-btn:active {
+    transform: scale(0.95);
+}
+
+.main-content > .sidebar-resize-icon {
+    position: absolute;
+    top: 50%;
+    left: 268px;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 40px;
+    background: linear-gradient(180deg, #ffffff, #f1f5f9);
+    border: 1.5px solid #dde3ec;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1001;
+    cursor: ew-resize;
+    transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    pointer-events: auto;
+}
+
+.main-content > .sidebar-resize-icon svg {
+    stroke: #7f8c8d;
+    transition: stroke 0.2s, opacity 0.2s;
+}
+
+.main-content > .sidebar-resize-icon:hover {
+    border-color: #4facfe;
+    box-shadow: 0 2px 10px rgba(79, 172, 254, 0.3);
+}
+
+.main-content > .sidebar-resize-icon:hover svg {
+    stroke: #4facfe;
+}
+
+.main-content > .sidebar-resize-icon.resizing {
+    border-color: #4facfe;
+    background: linear-gradient(180deg, #e8f4fd, #d0eaf9);
+    box-shadow: 0 2px 14px rgba(79, 172, 254, 0.45);
+}
+
+.main-content > .sidebar-resize-icon.resizing svg {
+    stroke: #2980b9;
+}
+
+.sidebar-resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 5px;
+    height: 100%;
+    cursor: ew-resize;
+    z-index: 1000;
+    background: transparent;
+    transition: background-color 0.2s;
+}
+
+.sidebar-resize-handle:hover {
+    background-color: rgba(79, 172, 254, 0.25);
+}
+
+.sidebar-resize-handle.resizing {
+    background-color: rgba(79, 172, 254, 0.45);
+}
+
+.sidebar-tabs {
+    display: flex;
+    border-bottom: 1px solid #dde3ec;
+    background: linear-gradient(180deg, #f0f4fa 0%, #e8edf5 100%);
+    flex-shrink: 0;
+}
+
+.sidebar-tab {
+    flex: 1;
+    padding: 0.75rem 0.5rem;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-weight: 500;
+    color: #7f8c8d;
+    transition: all 0.2s;
+    border-bottom: 3px solid transparent;
+    font-size: 0.9rem;
+}
+
+.sidebar-tab:hover {
+    background: rgba(255,255,255,0.6);
+    color: #2c3e50;
+}
+
+.sidebar-tab.active {
+    color: #2980b9;
+    border-bottom-color: transparent;
+    background: linear-gradient(180deg, #ffffff 0%, #f0f7ff 100%);
+    border-bottom: 3px solid #4facfe;
+    box-shadow: 0 -2px 6px rgba(79, 172, 254, 0.1);
+}
+
+.tab-content {
+    display: none;
+    padding: 1.5rem;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.tool-section {
+    margin-bottom: 2rem;
+}
+
+.tool-section h3 {
+    font-size: 1rem;
+    color: #1e3c72;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid transparent;
+    border-image: linear-gradient(90deg, #4facfe, #2a5298) 1;
+    user-select: none;
+    cursor: default;
+}
+
+.tool-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.tool-btn {
+    padding: 0.75rem;
+    border: 1.5px solid #dde3ec;
+    background: linear-gradient(135deg, #ffffff 0%, #f5f7fa 100%);
+    border-radius: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #2c3e50;
+    transition: all 0.2s;
+    user-select: none;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.tool-btn:hover {
+    border-color: #4facfe;
+    background: linear-gradient(135deg, #f0f7ff 0%, #e8f4fd 100%);
+    box-shadow: 0 3px 8px rgba(79, 172, 254, 0.2);
+}
+
+.tool-btn.active {
+    border-color: #2980b9;
+    background: linear-gradient(135deg, #4facfe 0%, #2980b9 100%);
+    color: white;
+    box-shadow: 0 3px 10px rgba(41, 128, 185, 0.4);
+}
+
+.tool-btn svg {
+    flex-shrink: 0;
+    pointer-events: none;
+}
+
+#teams-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+}
+
+.team-row {
+    flex: 0 0 auto;
+    width: 80px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.3rem;
+    background: linear-gradient(160deg, #ffffff 0%, #f5f7fa 100%);
+    border-radius: 10px;
+    border: 1.5px solid #dde3ec;
+    position: relative;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+.team-color-picker {
+    border: 2px solid #dde3ec;
+    border-radius: 6px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.team-color-picker:hover {
+    border-color: #4facfe;
+}
+
+.team-player-template {
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    color: white;
+    cursor: grab;
+    user-select: none;
+    flex-shrink: 0;
+    position: relative;
+    overflow: visible;
+}
+
+.team-player-template::before {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background-color: inherit;
+    border: 3px solid rgba(255,255,255,0.3);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    z-index: 1;
+}
+
+.team-player-template .player-number {
+    position: relative;
+    z-index: 10;
+}
+
+.team-player-template .player-arms {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.team-player-template:active {
+    cursor: grabbing;
+}
+
+.player-drag-overlay {
+    cursor: grab;
+}
+
+.player-drag-overlay:active {
+    cursor: grabbing;
+}
+
+
+.team-remove-btn {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    padding: 0.15rem;
+    background: rgba(255, 255, 255, 0.9);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #e74c3c;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.team-remove-btn:hover {
+    color: #c0392b;
+    background: rgba(255, 255, 255, 1);
+}
+
+.team-remove-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.animation-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.speed-control {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.speed-control label {
+    font-size: 0.9rem;
+    color: #2c3e50;
+    font-weight: 500;
+    user-select: none;
+    cursor: default;
+}
+
+.speed-buttons-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.speed-buttons-group #speed-value,
+.speed-buttons-group #fps-value {
+    min-width: 60px;
+    text-align: center;
+    font-size: 0.9rem;
+    color: #2c3e50;
+    font-weight: 500;
+    user-select: none;
+}
+
+.speed-btn {
+    width: 32px;
+    height: 32px;
+    border: 1.5px solid #4facfe;
+    background: linear-gradient(135deg, #f0f7ff, #e8f4fd);
+    color: #2980b9;
+    border-radius: 8px;
+    font-size: 1.1rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.speed-btn:hover {
+    background: linear-gradient(135deg, #4facfe, #2980b9);
+    color: white;
+    transform: scale(1.05);
+    box-shadow: 0 3px 8px rgba(79, 172, 254, 0.4);
+}
+
+.speed-btn:active {
+    transform: scale(0.95);
+}
+
+.animation-toggles {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+
+.toggle-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    user-select: none;
+    padding: 0.5rem;
+    border-radius: 8px;
+    transition: background 0.2s;
+}
+
+.toggle-option:hover {
+    background: linear-gradient(135deg, #f0f7ff, #e8f4fd);
+}
+
+.toggle-option input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    margin: 0;
+}
+
+.toggle-option span {
+    font-size: 0.9rem;
+    color: #2c3e50;
+    font-weight: 500;
+}
+
+.path-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.path-controls > label {
+    font-size: 0.9rem;
+    color: #2c3e50;
+    font-weight: 500;
+    user-select: none;
+    cursor: default;
+}
+
+.path-controls-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.path-controls-row input[type="color"] {
+    width: 50px;
+    height: 36px;
+    border: 1.5px solid #dde3ec;
+    border-radius: 8px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: border-color 0.2s;
+}
+
+.path-controls-row input[type="color"]:hover {
+    border-color: #4facfe;
+}
+
+.path-opacity-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+}
+
+.path-opacity-group #path-opacity-value {
+    min-width: 40px;
+    text-align: center;
+    font-size: 0.9rem;
+    color: #2c3e50;
+    font-weight: 500;
+    user-select: none;
+}
+
+.opacity-btn {
+    width: 32px;
+    height: 32px;
+    border: 1.5px solid #4facfe;
+    background: linear-gradient(135deg, #f0f7ff, #e8f4fd);
+    color: #2980b9;
+    border-radius: 8px;
+    font-size: 1.1rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.opacity-btn:hover {
+    background: linear-gradient(135deg, #4facfe, #2980b9);
+    color: white;
+    transform: scale(1.05);
+    box-shadow: 0 3px 8px rgba(79, 172, 254, 0.4);
+}
+
+.opacity-btn:active {
+    transform: scale(0.95);
+}
+
+.path-intermediate-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.path-intermediate-btn {
+    width: 28px;
+    height: 28px;
+    border: 1.5px solid #4facfe;
+    background: linear-gradient(135deg, #f0f7ff, #e8f4fd);
+    color: #2980b9;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+}
+
+.path-intermediate-btn:hover {
+    background: linear-gradient(135deg, #4facfe, #2980b9);
+    color: white;
+    transform: scale(1.05);
+    box-shadow: 0 3px 8px rgba(79, 172, 254, 0.4);
+}
+
+.path-intermediate-btn:active {
+    transform: scale(0.95);
+}
+
+.workbook-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding: 1rem;
+    background: linear-gradient(160deg, #f8fafc 0%, #f0f4fa 100%);
+    border-radius: 10px;
+    border: 1.5px solid #dde3ec;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+
+.workbook-info label {
+    font-size: 0.85rem;
+    color: #7f8c8d;
+    font-weight: 500;
+}
+
+.workbook-name-display {
+    font-size: 1rem;
+    color: #2c3e50;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0.5rem;
+    background: white;
+    border-radius: 8px;
+    border: 1.5px solid #dde3ec;
+    transition: all 0.2s;
+}
+
+.workbook-name-display:hover {
+    border-color: #4facfe;
+    background: linear-gradient(135deg, #f0f7ff, #e8f4fd);
+    box-shadow: 0 2px 6px rgba(79, 172, 254, 0.15);
+}
+
+.boards-list {
+    margin-bottom: 1rem;
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1.5px solid #dde3ec;
+    border-radius: 10px;
+    background: white;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+
+.board-tree {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.board-tree-item {
+    position: relative;
+}
+
+.board-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none;
+    font-size: 0.9rem;
+    color: #2c3e50;
+    font-weight: 500;
+    border-left: 3px solid transparent;
+}
+
+.board-item:hover {
+    background: linear-gradient(90deg, #f0f7ff, #f8fafc);
+}
+
+.board-item.active {
+    background: linear-gradient(90deg, #e8f4fd 0%, #f0f7ff 100%);
+    border-left-color: #4facfe;
+    color: #2980b9;
+}
+
+.board-expand-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.2s;
+    color: #7f8c8d;
+    border-radius: 4px;
+}
+
+.board-expand-icon:hover {
+    background: #e8f4fd;
+    color: #2980b9;
+}
+
+.board-expand-icon.expanded {
+    transform: rotate(90deg);
+}
+
+.board-expand-icon svg {
+    width: 14px;
+    height: 14px;
+}
+
+.board-expand-spacer {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+}
+
+.board-item-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: inherit;
+}
+
+.board-item-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.board-item-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.board-tree-children {
+    list-style: none;
+    padding-left: 1.5rem;
+    margin: 0;
+}
+
+.board-tree-item {
+    position: relative;
+}
+
+/* Horizontal connector */
+.board-tree-children > .board-tree-item::before {
+    content: '';
+    position: absolute;
+    left: -16px;
+    top: 20px;
+    width: 16px;
+    height: 1px;
+    background: #dee2e6;
+}
+
+/* Vertical connector - draw from top to middle */
+.board-tree-children > .board-tree-item::after {
+    content: '';
+    position: absolute;
+    left: -16px;
+    top: 0;
+    height: 20px;
+    width: 1px;
+    background: #dee2e6;
+}
+
+/* For non-last items, extend the vertical line down */
+.board-tree-children > .board-tree-item:not(:last-child)::after {
+    bottom: 0;
+    height: auto;
+}
+
+/* Animation Player Overlay */
+.animation-player-overlay {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    padding: 5px 6px 6px;
+    border-radius: 13px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18), 0 1px 4px rgba(0,0,0,0.08);
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    z-index: 100;
+}
+
+.animation-controls-row {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+}
+
+.animation-player-overlay .btn {
+    min-width: 26px;
+    height: 26px;
+    padding: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.animation-player-overlay .btn svg {
+    flex-shrink: 0;
+    width: 22px;
+    height: 16px;
+}
+
+/* Scrubber / progress bar */
+.animation-progress-container {
+    width: 100%;
+    height: 5px;
+    background: rgba(0, 0, 0, 0.12);
+    border-radius: 3px;
+    margin-top: 5px;
+    cursor: pointer;
+    position: relative;
+    /* overflow visible so the dot can extend beyond the bar height */
+}
+
+.animation-progress-container:hover {
+    background: rgba(0, 0, 0, 0.18);
+}
+
+.animation-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #4facfe, #2980b9);
+    border-radius: 3px;
+    pointer-events: none;
+}
+
+.animation-progress-dot {
+    position: absolute;
+    top: 50%;
+    left: 0%;
+    transform: translate(-50%, -50%);
+    width: 11px;
+    height: 11px;
+    background: #2980b9;
+    border: 2px solid white;
+    border-radius: 50%;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    cursor: grab;
+    touch-action: none;
+    pointer-events: auto;
+    transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.animation-progress-dot:hover,
+.animation-progress-dot.dragging {
+    transform: translate(-50%, -50%) scale(1.3);
+    box-shadow: 0 2px 8px rgba(41, 128, 185, 0.5);
+}
+
+.animation-progress-dot.dragging {
+    cursor: grabbing;
+}
+
+.animation-divider {
+    width: 1px;
+    background: linear-gradient(180deg, transparent, #c8d3e0, transparent);
+    margin: 3px 2px;
+}
+
+.animation-dropdown {
+    height: 26px;
+    padding: 3px 6px;
+    border: 1.5px solid #dde3ec;
+    border-radius: 6px;
+    background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+    font-size: 0.68rem;
+    color: #2c3e50;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.animation-dropdown:hover {
+    border-color: #4facfe;
+}
+
+.animation-dropdown:focus {
+    border-color: #4facfe;
+    box-shadow: 0 0 0 2px rgba(79, 172, 254, 0.18);
+}
+
+.btn-toggle {
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+
+.btn-toggle.active {
+    opacity: 1;
+}
+    </style>
+</head>
+<body>
+    <noscript>
+        <div style="padding: 2rem; text-align: center; font-family: sans-serif;">
+            <h2>JavaScript Required</h2>
+            <p>Futsal Tactics Board requires JavaScript to run. Please enable JavaScript in your browser settings.</p>
+        </div>
+    </noscript>
+    <div id="app">
+        <!-- Header -->
+        <header class="header">
+            <h1 class="header-title">
+                <button id="btn-toggle-sidebar" class="sidebar-toggle-btn" title="Toggle Sidebar">
+                    <svg width="28" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="12" x2="21" y2="12"></line>
+                        <line x1="3" y1="6" x2="21" y2="6"></line>
+                        <line x1="3" y1="18" x2="21" y2="18"></line>
+                    </svg>
+                </button>
+                <span>Futsal Tactics Board -</span>
+                <span id="workbook-name" class="workbook-name" title="Click to rename">Untitled Workbook</span>
+                <span>-</span>
+                <span id="board-name" class="board-name" title="Click to rename">Board 1</span>
+            </h1>
+            <div class="header-controls">
+                <button id="btn-undo" class="btn btn-secondary" title="Undo" aria-label="Undo" disabled>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 7v6h6"></path>
+                        <path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13"></path>
+                    </svg>
+                </button>
+                <button id="btn-redo" class="btn btn-secondary" title="Redo" aria-label="Redo" disabled>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 7v6h-6"></path>
+                        <path d="M3 17a9 9 0 019-9 9 9 0 016 2.3l3 2.7"></path>
+                    </svg>
+                </button>
+                <button id="btn-file-menu" class="btn btn-secondary" title="File menu" aria-label="File menu">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                        <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                    <span>File</span>
+                </button>
+                <button id="btn-screenshot" class="btn btn-secondary" title="Export Screenshot" aria-label="Export screenshot">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                        <circle cx="12" cy="13" r="4"/>
+                    </svg>
+                </button>
+                <button id="btn-header-download-animation" class="btn btn-secondary" title="Download Animation" aria-label="Download animation video">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="2" width="20" height="20" rx="2" ry="2"/>
+                        <line x1="7" y1="2" x2="7" y2="22"/>
+                        <line x1="17" y1="2" x2="17" y2="22"/>
+                        <line x1="2" y1="12" x2="22" y2="12"/>
+                        <line x1="2" y1="7" x2="7" y2="7"/>
+                        <line x1="2" y1="17" x2="7" y2="17"/>
+                        <line x1="17" y1="7" x2="22" y2="7"/>
+                        <line x1="17" y1="17" x2="22" y2="17"/>
+                    </svg>
+                </button>
+                <button id="btn-fullscreen" class="btn btn-secondary" title="Toggle Fullscreen" aria-label="Toggle fullscreen">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Breadcrumb navigation bar -->
+        <div id="board-breadcrumb" class="board-breadcrumb hidden"></div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <div class="sidebar-resize-icon" title="Drag to resize sidebar">
+                <svg width="16" height="24" viewBox="0 0 16 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="5 8 2 12 5 16"/>
+                    <polyline points="11 8 14 12 11 16"/>
+                </svg>
+            </div>
+            <!-- Toolbar -->
+            <div class="toolbar">
+                <div class="sidebar-resize-handle"></div>
+                <!-- Tabs -->
+                <div class="sidebar-tabs">
+                    <button class="sidebar-tab active" data-tab="elements" title="Elements">
+                        <svg width="28" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="7" height="7"/>
+                            <rect x="14" y="3" width="7" height="7"/>
+                            <rect x="14" y="14" width="7" height="7"/>
+                            <rect x="3" y="14" width="7" height="7"/>
+                        </svg>
+                    </button>
+                    <button class="sidebar-tab" data-tab="workbook" title="Workbook">
+                        <svg width="28" height="20" viewBox="2 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="9" y="2" width="6" height="4" rx="1"/>
+                            <rect x="3" y="14" width="6" height="4" rx="1"/>
+                            <rect x="15" y="14" width="6" height="4" rx="1"/>
+                            <path d="M12 6v2"/>
+                            <path d="M12 8h0"/>
+                            <path d="M6 14v-2h12v2"/>
+                            <path d="M12 8v2"/>
+                        </svg>
+                    </button>
+                    <button class="sidebar-tab" data-tab="settings" title="Settings">
+                        <svg width="28" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Tab Content: Elements -->
+                <div class="tab-content active" id="tab-elements">
+                <div class="tool-section">
+                    <h3>Teams</h3>
+                    <div id="teams-container">
+                        <!-- Teams will be dynamically added here -->
+                    </div>
+                    <button id="btn-add-team" class="btn btn-secondary btn-full">
+                        <svg width="28" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 5v14M5 12h14"/>
+                        </svg>
+                        Add Team
+                    </button>
+                </div>
+
+                <div class="tool-section">
+                    <h3>Balls</h3>
+                    <div id="ball-container" class="ball-container">
+                        <!-- Balls will be dynamically added here -->
+                    </div>
+                </div>
+
+                <div class="tool-section">
+                    <h3>Plates</h3>
+                    <div id="plate-container" class="plate-container">
+                        <!-- Plates will be dynamically added here -->
+                    </div>
+                </div>
+
+                <div class="tool-section">
+                    <h3>Elements</h3>
+                    <div class="elements-grid">
+                        <button class="element-btn" data-element="cone" title="Cone">
+                            <svg viewBox="0 0 100 100">
+                                <g>
+                                    <polygon points="50,10 20,90 80,90" fill="#ff6b35" stroke="#000" stroke-width="3"/>
+                                    <ellipse cx="50" cy="90" rx="30" ry="8" fill="#d65532" stroke="#000" stroke-width="2"/>
+                                </g>
+                            </svg>
+                            <span>Cone</span>
+                        </button>
+                        <button class="element-btn" data-element="goal" title="Goal">
+                            <svg viewBox="0 0 100 300">
+                                <defs>
+                                    <pattern id="goal-net-preview" x="0" y="0" width="28" height="20" patternUnits="userSpaceOnUse">
+                                        <path d="M 0 0 L 20 20 M 20 0 L 0 20" stroke="#999" stroke-width="1" fill="none"/>
+                                    </pattern>
+                                </defs>
+                                <g>
+                                    <rect x="0" y="0" width="100" height="300" fill="url(#goal-net-preview)" stroke="#777777" stroke-width="4"></rect>
+                                    <line x1="100" y1="0" x2="100" y2="300" stroke-width="5" stroke="white"></line>
+                                    <line x1="100" y1="0" x2="100" y2="300" stroke="red" stroke-dasharray="20" stroke-width="6"></line>
+                                </g>
+                            </svg>
+                            <span>Goal</span>
+                        </button>
+                        <button class="element-btn" data-element="small-goal" title="Small Goal">
+                            <svg viewBox="0 0 50 100">
+                                <defs>
+                                    <pattern id="goal-net-small-preview" x="0" y="0" width="10" height="10" patternUnits="userSpaceOnUse">
+                                        <path d="M 0 0 L 10 10 M 10 0 L 0 10" stroke="#999" stroke-width="1" fill="none"/>
+                                    </pattern>
+                                </defs>
+                                <g>
+                                    <rect x="0" y="0" width="50" height="100" fill="url(#goal-net-small-preview)" stroke="#777777" stroke-width="3"></rect>
+                                    <line x1="50" y1="0" x2="50" y2="100" stroke-width="4" stroke="white"></line>
+                                    <line x1="50" y1="0" x2="50" y2="100" stroke="red" stroke-dasharray="15" stroke-width="5"></line>
+                                </g>
+                            </svg>
+                            <span>Small Goal</span>
+                        </button>
+                        <button class="element-btn" data-element="pole" title="Pole">
+                            <svg viewBox="0 0 90 300">
+                                <g>
+                                    <ellipse cx="45" cy="270" rx="38" ry="18" fill="yellow" stroke="black" stroke-width="4"></ellipse>
+                                    <rect x="37.5" y="30" width="15" height="240" fill="yellow" stroke="black" stroke-width="4"></rect>
+                                </g>
+                            </svg>
+                            <span>Pole</span>
+                        </button>
+                        <button class="element-btn" data-element="ladder" title="Ladder">
+                            <svg viewBox="0 0 100 600">
+                                <g stroke="#f39c12" stroke-width="8" fill="none">
+                                    <line x1="10" y1="10" x2="10" y2="590"/>
+                                    <line x1="90" y1="10" x2="90" y2="590"/>
+                                    <line x1="10" y1="40" x2="90" y2="40"/>
+                                    <line x1="10" y1="100" x2="90" y2="100"/>
+                                    <line x1="10" y1="160" x2="90" y2="160"/>
+                                    <line x1="10" y1="220" x2="90" y2="220"/>
+                                    <line x1="10" y1="280" x2="90" y2="280"/>
+                                    <line x1="10" y1="340" x2="90" y2="340"/>
+                                    <line x1="10" y1="400" x2="90" y2="400"/>
+                                    <line x1="10" y1="460" x2="90" y2="460"/>
+                                    <line x1="10" y1="520" x2="90" y2="520"/>
+                                    <line x1="10" y1="580" x2="90" y2="580"/>
+                                </g>
+                            </svg>
+                            <span>Ladder</span>
+                        </button>
+                        <button class="element-btn" data-element="rebounce" title="Rebounce Board">
+                            <svg viewBox="0 0 50 400">
+                                <g>
+                                    <rect x="0" y="0" width="50" height="400" fill="#d4a574" stroke="#b38f5d" stroke-width="4" rx="3"/>
+                                    <rect x="5" y="5" width="40" height="390" fill="none" stroke="#8B6F47" stroke-width="2" stroke-dasharray="20,10" opacity="0.4"/>
+                                </g>
+                            </svg>
+                            <span>Rebounce</span>
+                        </button>
+                        <button class="element-btn" data-element="small-wall" title="Small Wall">
+                            <svg viewBox="0 0 50 100">
+                                <g>
+                                    <rect x="0" y="0" width="50" height="100" fill="#8B6F47" stroke="#6d5535" stroke-width="3"/>
+                                    <rect x="5" y="5" width="40" height="90" fill="none" stroke="#d4a574" stroke-width="1.5" opacity="0.3"/>
+                                </g>
+                            </svg>
+                            <span>Small Wall</span>
+                        </button>
+                        <button class="element-btn" data-element="big-wall" title="Big Wall">
+                            <svg viewBox="0 0 50 200">
+                                <g>
+                                    <rect x="0" y="0" width="50" height="200" fill="#8B6F47" stroke="#6d5535" stroke-width="3"/>
+                                    <rect x="5" y="5" width="40" height="190" fill="none" stroke="#d4a574" stroke-width="1.5" opacity="0.3"/>
+                                    <line x1="5" y1="100" x2="45" y2="100" stroke="#d4a574" stroke-width="1" opacity="0.4"/>
+                                </g>
+                            </svg>
+                            <span>Big Wall</span>
+                        </button>
+                        <button class="element-btn" data-element="small-hurdle" title="Small Hurdle">
+                            <svg viewBox="0 0 100 40">
+                                <g>
+                                    <rect x="15" y="10" width="8" height="28" fill="#f1c40f" stroke="#000" stroke-width="2" rx="2"/>
+                                    <rect x="77" y="10" width="8" height="28" fill="#f1c40f" stroke="#000" stroke-width="2" rx="2"/>
+                                    <rect x="10" y="5" width="80" height="12" fill="#f1c40f" stroke="#000" stroke-width="2" rx="3"/>
+                                </g>
+                            </svg>
+                            <span>Small Hurdle</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="tool-section">
+                    <h3>Draw</h3>
+                    <div class="elements-grid">
+                        <button class="draw-btn" data-draw="line" title="Line">
+                            <svg viewBox="0 0 100 100">
+                                <line x1="10" y1="90" x2="90" y2="10" stroke="#2c3e50" stroke-width="4"/>
+                            </svg>
+                            <span>Line</span>
+                        </button>
+                        <button class="draw-btn" data-draw="arrow" title="Arrow">
+                            <svg viewBox="0 0 100 100">
+                                <defs>
+                                    <marker id="arrowhead-preview" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+                                        <polygon points="0,0 8,4 0,8" fill="#2c3e50"/>
+                                    </marker>
+                                </defs>
+                                <line x1="20" y1="80" x2="80" y2="20" stroke="#2c3e50" stroke-width="3" marker-end="url(#arrowhead-preview)"/>
+                            </svg>
+                            <span>Arrow</span>
+                        </button>
+                        <button class="draw-btn" data-draw="rectangle" title="Rectangle">
+                            <svg viewBox="0 0 100 60">
+                                <rect x="5" y="5" width="90" height="50" fill="rgba(52, 152, 219, 0.3)" stroke="#3498db" stroke-width="3"/>
+                            </svg>
+                            <span>Rectangle</span>
+                        </button>
+                        <button class="draw-btn" data-draw="ellipse" title="Ellipse">
+                            <svg viewBox="0 0 100 60">
+                                <ellipse cx="50" cy="30" rx="45" ry="25" fill="rgba(52, 152, 219, 0.3)" stroke="#3498db" stroke-width="3"/>
+                            </svg>
+                            <span>Ellipse</span>
+                        </button>
+                        <button class="draw-btn" data-draw="text" title="Text">
+                            <svg viewBox="0 0 100 100">
+                                <text x="50" y="60" text-anchor="middle" font-size="40" font-weight="bold" fill="#2c3e50">T</text>
+                            </svg>
+                            <span>Text</span>
+                        </button>
+                    </div>
+                </div>
+                </div>
+
+                <!-- Tab Content: Workbook -->
+                <div class="tab-content" id="tab-workbook">
+                    <div class="tool-section">
+                        <h3>Boards</h3>
+                        <div id="boards-list" class="boards-list">
+                            <!-- Boards will be dynamically added here -->
+                        </div>
+                        <button id="btn-add-board" class="btn btn-primary btn-full">
+                            <svg width="28" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 5v14M5 12h14"/>
+                            </svg>
+                            Add Board
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tab Content: Settings -->
+                <div class="tab-content" id="tab-settings">
+                    <div class="tool-section">
+                        <h3>Board Settings</h3>
+                        <div class="animation-toggles">
+                            <label class="toggle-option">
+                                <input type="checkbox" id="animation-show-paths" checked>
+                                <span>Show paths</span>
+                            </label>
+                            <label class="toggle-option">
+                                <input type="checkbox" id="animation-show-path-labels" checked>
+                                <span>Show path labels</span>
+                            </label>
+                            <label class="toggle-option">
+                                <input type="checkbox" id="animation-show-ghosts-board" checked>
+                                <span>Show ghosts</span>
+                            </label>
+                            <label class="toggle-option">
+                                <input type="checkbox" id="animation-show-all-paths">
+                                <span>Show all paths</span>
+                            </label>
+                            <label class="toggle-option">
+                                <input type="checkbox" id="animation-show-all-ghosts">
+                                <span>Show all ghosts</span>
+                            </label>
+                            <label class="toggle-option">
+                                <input type="checkbox" id="show-only-changed-objects">
+                                <span>Show only changed objects</span>
+                            </label>
+                            <label class="toggle-option">
+                                <input type="checkbox" id="show-board-breadcrumb" checked>
+                                <span>Show board breadcrumb</span>
+                            </label>
+                        </div>
+                        <div class="path-controls">
+                            <label>Paths:</label>
+                            <div class="path-controls-row">
+                                <input type="color" id="path-color-picker" value="#000000" title="Path color">
+                                <div class="path-opacity-group">
+                                    <button class="opacity-btn" data-action="decrease">-</button>
+                                    <span id="path-opacity-value">30%</span>
+                                    <button class="opacity-btn" data-action="increase">+</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tool-section">
+                        <h3>Animation Settings</h3>
+                        <div class="speed-control">
+                            <label>Speed (time per frame):</label>
+                            <div class="speed-buttons-group">
+                                <button class="speed-btn" data-action="decrease">-</button>
+                                <span id="speed-value">2000ms</span>
+                                <button class="speed-btn" data-action="increase">+</button>
+                            </div>
+                        </div>
+                        <div class="animation-toggles">
+                            <label class="toggle-option">
+                                <input type="checkbox" id="animation-show-paths-animation" checked>
+                                <span>Show paths (during Play)</span>
+                            </label>
+                            <label class="toggle-option">
+                                <input type="checkbox" id="animation-remove-path-after-frame" checked>
+                                <span>Remove previous frame paths (during Play)</span>
+                            </label>
+                            <label class="toggle-option">
+                                <input type="checkbox" id="animation-show-path-labels-animation" checked>
+                                <span>Show path labels (during Play)</span>
+                            </label>
+                            <label class="toggle-option">
+                                <input type="checkbox" id="animation-show-ghosts-animation">
+                                <span>Show ghosts (during Play)</span>
+                            </label>
+                            <label class="toggle-option">
+                                <input type="checkbox" id="animation-repeat">
+                                <span>Repeat</span>
+                            </label>
+                            <label class="toggle-option">
+                                <input type="checkbox" id="animation-crop-video" checked>
+                                <span>Crop video to court</span>
+                            </label>
+                        </div>
+                        <div class="speed-control">
+                            <label>Video export FPS:</label>
+                            <div class="speed-buttons-group">
+                                <button class="speed-btn fps-btn" data-action="decrease">-</button>
+                                <span id="fps-value">15</span>
+                                <button class="speed-btn fps-btn" data-action="increase">+</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Board Container -->
+            <div class="board-container">
+                <svg id="court-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4500 2500" aria-hidden="true">
+	<pattern id="goal-net" x="0" y="0" width="28" height="20" stroke="black" patternUnits="userSpaceOnUse">
+		<line x1="0" x2="20" y1="0" y2="20" />
+		<line x1="20" x2="00" y1="0" y2="20" />
+	</pattern>
+	<g id="background">
+		<rect width="4500" height="2500" fill="#b7b7b7" />
+	</g>
+	<g id="pitch" transform="translate(250 250)" fill="#0280c6" stroke="white" stroke-width="8">
+		<rect width="4000" height="2000" />
+		<line x1="2000" x2="2000" y1="0" y2="2000" />
+		<circle r="300" cx="2000" cy="1000" fill="none" />
+		<circle r="12" cx="2000" cy="1000" fill="white" stroke-width="0" />
+		<g id="corner_marks">
+			<path fill="none" d="M25,0 a25,25 0 0,1 -25,25" />
+			<path fill="none" d="M4000,25 a25,25 0 0,1 -25,-25" />
+			<path fill="none" d="M0,1975 a25,25 0 0,1 25,25" />
+			<path fill="none" d="M3975,2000 a25,25 0 0,1 25,-25" />
+		</g>
+		<g id="substitition-zones">
+			<line x1="1000" x2="1000" y1="-48" y2="32" />
+			<line x1="1500" x2="1500" y1="-48" y2="32" />
+			<line x1="2500" x2="2500" y1="-48" y2="32" />
+			<line x1="3000" x2="3000" y1="-48" y2="32" />
+			<line x1="1000" x2="1000" y1="1968" y2="2052" />
+			<line x1="1500" x2="1500" y1="1968" y2="2052" />
+			<line x1="2500" x2="2500" y1="1968" y2="2052" />
+			<line x1="3000" x2="3000" y1="1968" y2="2052" />
+		</g>
+		<g id="left">
+			<line x1="600" x2="600" y1="842" y2="1158" />
+			<circle r="12" cx="600" cy="1000" fill="white" stroke-width="0" />
+			<path fill="none" d="M0,242 a600,600 0 0,1 600,600" />
+			<path fill="none" d="M600,1158 a600,600 0 0,1 -600,600" />
+			<line x1="0" x2="-40" y1="500" y2="500" />
+			<line x1="0" x2="-40" y1="1500" y2="1500" />
+		</g>
+		<g id="left-penalty" fill="white" stroke-width="0">
+			<rect width="16" height="16" x="992" y="492" />
+			<circle r="12" cx="1000" cy="1000"/>
+			<rect width="16" height="16" x="992" y="1492" />
+		</g>
+		<g id="right">
+			<line x1="3400" x2="3400" y1="842" y2="1158" />
+			<circle r="12" cx="3400" cy="1000" fill="white" stroke-width="0" />
+			<path fill="none" d="M3400,842 a600,600 0 0,1 600,-600" />
+			<path fill="none" d="M3400,1158 a600,600 0 0,0 600,600" />
+			<line x1="4000" x2="4040" y1="500" y2="500" />
+			<line x1="4000" x2="4040" y1="1500" y2="1500" />
+		</g>
+		<g id="right-penalty" fill="white" stroke-width="0">
+			<rect width="16" height="16" x="2992" y="492" />
+			<circle r="12" cx="3000" cy="1000" />
+			<rect width="16" height="16" x="2992" y="1492" />
+		</g>
+	</g>
+</svg>
+                <canvas id="board-canvas" role="img" aria-label="Futsal tactics board"></canvas>
+                <svg id="drawing-layer"></svg>
+                <svg id="paths-layer"></svg>
+                <div id="players-layer"><div id="board-area"></div></div>
+                <div id="position-display" class="position-display hidden">X: 0 - Y: 0</div>
+
+                <!-- Frame Speed Control (bottom-left corner) -->
+                <div id="frame-speed-control" class="frame-speed-control">
+                    <label for="frame-speed-dropdown">Frame speed:</label>
+                    <select id="frame-speed-dropdown" class="frame-speed-dropdown" title="Playback speed for this board">
+                        <option value="0.4">0.4x</option>
+                        <option value="0.6">0.6x</option>
+                        <option value="0.8">0.8x</option>
+                        <option value="1.0" selected>1.0x</option>
+                        <option value="1.2">1.2x</option>
+                        <option value="1.4">1.4x</option>
+                        <option value="1.6">1.6x</option>
+                        <option value="1.8">1.8x</option>
+                        <option value="2.0">2.0x</option>
+                    </select>
+                </div>
+
+                <!-- Recording progress bar (visible only while downloadAnimation runs) -->
+                <div id="recording-progress" class="recording-progress hidden">
+                    <div class="recording-progress-bar">
+                        <div id="recording-progress-fill" class="recording-progress-fill"></div>
+                    </div>
+                    <span id="recording-progress-label" class="recording-progress-label">Recording Frame 0/0</span>
+                </div>
+
+                <!-- Animation Player Overlay -->
+                <div id="animation-player-overlay" class="animation-player-overlay">
+                    <div class="animation-controls-row">
+                    <button id="btn-play-pause" class="btn btn-primary" title="Play/Pause">
+                        <svg width="28" height="20" viewBox="0 0 24 24" fill="currentColor" class="play-icon">
+                            <polygon points="5 3 19 12 5 21 5 3"/>
+                        </svg>
+                        <svg width="28" height="20" viewBox="0 0 24 24" fill="currentColor" class="pause-icon" style="display: none;">
+                            <rect x="6" y="4" width="4" height="16"/>
+                            <rect x="14" y="4" width="4" height="16"/>
+                        </svg>
+                    </button>
+                    <button id="btn-go-to-start" class="btn btn-secondary" title="Go to frame start">
+                        <svg width="28" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <line x1="5" y1="3" x2="5" y2="21" stroke="currentColor" stroke-width="2"/>
+                            <polygon points="19 3 5 12 19 21 19 3"/>
+                        </svg>
+                    </button>
+                    <button id="btn-play-frame" class="btn btn-secondary" title="Play this frame">
+                        <svg width="28" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="3" width="20" height="18" rx="2" fill="none"/>
+                            <polygon points="9 7 9 17 17 12 9 7" fill="currentColor" stroke="none"/>
+                        </svg>
+                    </button>
+                    <button id="btn-stop" class="btn btn-secondary" title="Go to frame end">
+                        <svg width="28" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <polygon points="5 3 19 12 5 21 5 3"/>
+                            <line x1="19" y1="3" x2="19" y2="21" stroke="currentColor" stroke-width="2"/>
+                        </svg>
+                    </button>
+
+                    <div class="animation-divider"></div>
+
+                    <select id="animation-speed-dropdown" class="animation-dropdown" title="Speed (time per frame)">
+                        <option value="200">0.2s</option>
+                        <option value="500">0.5s</option>
+                        <option value="1000">1.0s</option>
+                        <option value="1500">1.5s</option>
+                        <option value="2000" selected>2.0s</option>
+                        <option value="2500">2.5s</option>
+                        <option value="3000">3.0s</option>
+                        <option value="4000">4.0s</option>
+                        <option value="5000">5.0s</option>
+                    </select>
+
+                    <div class="animation-divider"></div>
+
+                    <button id="btn-toggle-paths" class="btn btn-secondary btn-toggle active" title="Show paths (during Play)">
+                        <svg width="28" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="2" y1="12" x2="22" y2="12" stroke-linecap="round"/>
+                            <circle cx="2" cy="12" r="1.5" fill="currentColor"/>
+                            <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+                            <circle cx="22" cy="12" r="1.5" fill="currentColor"/>
+                        </svg>
+                    </button>
+                    <button id="btn-toggle-path-labels" class="btn btn-secondary btn-toggle active" title="Show path labels (during Play)">
+                        <svg width="28" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="2" y1="16" x2="22" y2="16" stroke-linecap="round"/>
+                            <text x="12" y="12" text-anchor="middle" font-size="12" fill="currentColor" stroke="none" font-weight="bold">A</text>
+                        </svg>
+                    </button>
+                    <button id="btn-toggle-remove-paths" class="btn btn-secondary btn-toggle active" title="Remove previous frame paths (during Play)">
+                        <svg width="28" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="2" y1="12" x2="10" y2="12" stroke-linecap="round" opacity="0.3"/>
+                            <line x1="14" y1="12" x2="22" y2="12" stroke-linecap="round"/>
+                            <line x1="8" y1="8" x2="14" y2="16" stroke-linecap="round"/>
+                            <line x1="14" y1="8" x2="8" y2="16" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                    <button id="btn-toggle-ghosts" class="btn btn-secondary btn-toggle" title="Show ghosts (during Play)">
+                        <svg width="28" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="11" fill="#ddd" stroke="none"/>
+                            <circle cx="12" cy="7" r="3" opacity="0.4"/>
+                            <path d="M6 20 C6 16, 8 14, 12 14 C16 14, 18 16, 18 20" opacity="0.4"/>
+                        </svg>
+                    </button>
+                    <button id="btn-toggle-repeat" class="btn btn-secondary btn-toggle" title="Repeat animation">
+                        <svg width="28" height="20" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M11 5.466V4H5a4 4 0 0 0-3.584 5.777.5.5 0 1 1-.896.446A5 5 0 0 1 5 3h6V1.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384l-2.36 1.966a.25.25 0 0 1-.41-.192m3.81.086a.5.5 0 0 1 .67.225A5 5 0 0 1 11 13H5v1.466a.25.25 0 0 1-.41.192l-2.36-1.966a.25.25 0 0 1 0-.384l2.36-1.966a.25.25 0 0 1 .41.192V12h6a4 4 0 0 0 3.585-5.777.5.5 0 0 1 .225-.67Z"/>
+                        </svg>
+                    </button>
+                    </div>
+                    <!-- Progress / scrubber bar -->
+                    <div id="animation-progress-container" class="animation-progress-container" title="Click or drag to seek">
+                        <div id="animation-progress-fill" class="animation-progress-fill"></div>
+                        <div id="animation-progress-dot" class="animation-progress-dot"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Element Context Menu -->
+        <div id="element-context-menu" class="context-menu hidden">
+            <div class="context-menu-item" data-action="position">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="5 9 2 12 5 15"/>
+                    <polyline points="9 5 12 2 15 5"/>
+                    <polyline points="15 19 12 22 9 19"/>
+                    <polyline points="19 9 22 12 19 15"/>
+                    <line x1="12" y1="2" x2="12" y2="22"/>
+                    <line x1="2" y1="12" x2="22" y2="12"/>
+                </svg>
+                Set Position
+            </div>
+            <div class="context-menu-item" data-action="color">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                    <circle cx="12" cy="12" r="10" stroke-width="1"/>
+                    <path d="M 12 2 A 10 10 0 0 1 22 12 L 12 12 Z" fill="#ef4444"/>
+                    <path d="M 22 12 A 10 10 0 0 1 12 22 L 12 12 Z" fill="#3b82f6"/>
+                    <path d="M 12 22 A 10 10 0 0 1 2 12 L 12 12 Z" fill="#eab308"/>
+                    <path d="M 2 12 A 10 10 0 0 1 12 2 L 12 12 Z" fill="#22c55e"/>
+                </svg>
+                Set Color
+            </div>
+            <div class="context-menu-divider"></div>
+            <div class="context-menu-item" data-action="lock">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+                <span class="lock-text">Lock</span>
+            </div>
+            <div class="context-menu-item" data-action="remove">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+                Delete
+            </div>
+        </div>
+
+        <!-- Path Context Menu -->
+        <div id="path-context-menu" class="context-menu hidden">
+            <div class="context-menu-item" style="justify-content: space-between; padding: 8px 12px;">
+                <span>Ghosts:</span>
+                <div class="path-intermediate-controls">
+                    <button class="path-intermediate-btn" data-action="decrease-ghosts">-</button>
+                    <span id="path-intermediate-count" style="display: inline-block; min-width: 20px; text-align: center;">0</span>
+                    <button class="path-intermediate-btn" data-action="increase-ghosts">+</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Element Position Modal -->
+        <div id="element-position-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="element-position-modal-title">
+            <div class="modal-content">
+                <h2 id="element-position-modal-title">Element Position</h2>
+                <div class="form-group">
+                    <label for="element-pos-x">X Position (cm from left edge):</label>
+                    <div class="position-input-group">
+                        <button class="position-btn" data-action="decrease" data-field="x">-</button>
+                        <input type="number" id="element-pos-x" class="form-input position-input" step="1">
+                        <button class="position-btn" data-action="increase" data-field="x">+</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="element-pos-y">Y Position (cm from top edge):</label>
+                    <div class="position-input-group">
+                        <button class="position-btn" data-action="decrease" data-field="y">-</button>
+                        <input type="number" id="element-pos-y" class="form-input position-input" step="1">
+                        <button class="position-btn" data-action="increase" data-field="y">+</button>
+                    </div>
+                </div>
+                <div class="form-group" id="rotation-group">
+                    <label for="element-rotation">Rotation (degrees):</label>
+                    <div class="position-input-group">
+                        <button class="position-btn" data-action="decrease" data-field="rotation">-</button>
+                        <input type="number" id="element-rotation" class="form-input position-input" step="1" min="0" max="360">
+                        <button class="position-btn" data-action="increase" data-field="rotation">+</button>
+                    </div>
+                </div>
+                <div class="modal-buttons">
+                    <button id="btn-cancel-position" class="btn btn-secondary">Cancel</button>
+                    <button id="btn-confirm-position" class="btn btn-primary">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Player Name Modal -->
+        <div id="player-name-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="player-name-modal-title">
+            <div class="modal-content">
+                <h2 id="player-name-modal-title">Player Name</h2>
+                <div class="form-group">
+                    <label for="player-name-input">Name:</label>
+                    <input type="text" id="player-name-input" class="form-input" placeholder="Enter player name...">
+                </div>
+                <div class="form-group">
+                    <label for="player-name-position">Name Position:</label>
+                    <select id="player-name-position" class="form-input">
+                        <option value="below">Below Player</option>
+                        <option value="above">Above Player</option>
+                        <option value="left">Left of Player</option>
+                        <option value="right">Right of Player</option>
+                    </select>
+                </div>
+                <div class="modal-buttons">
+                    <button id="btn-cancel-player-name" class="btn btn-secondary">Cancel</button>
+                    <button id="btn-remove-player-name" class="btn btn-secondary">Remove</button>
+                    <button id="btn-confirm-player-name" class="btn btn-primary">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Player Number Modal -->
+        <div id="player-number-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="player-number-modal-title">
+            <div class="modal-content">
+                <h2 id="player-number-modal-title">Edit Player Number</h2>
+                <div class="form-group">
+                    <label for="player-number-input">Number:</label>
+                    <input type="text" id="player-number-input" class="form-input" maxlength="2">
+                </div>
+                <div class="modal-buttons">
+                    <button id="btn-cancel-player-number" class="btn btn-secondary">Cancel</button>
+                    <button id="btn-player-number-ok" class="btn btn-primary">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Element Color Modal -->
+        <div id="element-color-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="element-color-modal-title">
+            <div class="modal-content">
+                <h2 id="element-color-modal-title">Element Color</h2>
+                <div class="form-group">
+                    <label for="element-color-picker">Choose Color:</label>
+                    <input type="color" id="element-color-picker" class="color-input">
+                </div>
+                <div class="color-presets">
+                    <div class="color-preset" style="background: #3498db" data-color="#3498db"></div>
+                    <div class="color-preset" style="background: #ffffff; border: 1px solid #ccc" data-color="#ffffff"></div>
+                    <div class="color-preset" style="background: #000000" data-color="#000000"></div>
+                    <div class="color-preset" style="background: #FFD700" data-color="#FFD700"></div>
+                    <div class="color-preset" style="background: #e74c3c" data-color="#e74c3c"></div>
+                    <div class="color-preset" style="background: #2ecc71" data-color="#2ecc71"></div>
+                </div>
+                <div class="modal-buttons">
+                    <button id="btn-cancel-color" class="btn btn-secondary">Cancel</button>
+                    <button id="btn-confirm-color" class="btn btn-primary">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Shape Text Modal -->
+        <div id="shape-text-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="shape-text-modal-title">
+            <div class="modal-content">
+                <h2 id="shape-text-modal-title">Shape Text</h2>
+                <div class="form-group">
+                    <label for="shape-text-input">Text:</label>
+                    <input type="text" id="shape-text-input" class="form-input" placeholder="Enter text...">
+                </div>
+                <div class="modal-buttons">
+                    <button id="btn-cancel-shape-text" class="btn btn-secondary">Cancel</button>
+                    <button id="btn-confirm-shape-text" class="btn btn-primary">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Shape Size Modal -->
+        <div id="shape-size-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="shape-size-modal-title">
+            <div class="modal-content">
+                <h2 id="shape-size-modal-title">Shape Size</h2>
+                <div class="form-group">
+                    <label for="shape-width">Width (cm):</label>
+                    <div class="position-input-group">
+                        <button class="position-btn" data-action="decrease" data-field="width">-</button>
+                        <input type="number" id="shape-width" class="form-input position-input" step="10">
+                        <button class="position-btn" data-action="increase" data-field="width">+</button>
+                    </div>
+                </div>
+                <div class="form-group" id="shape-height-group">
+                    <label for="shape-height">Height (cm):</label>
+                    <div class="position-input-group">
+                        <button class="position-btn" data-action="decrease" data-field="height">-</button>
+                        <input type="number" id="shape-height" class="form-input position-input" step="10">
+                        <button class="position-btn" data-action="increase" data-field="height">+</button>
+                    </div>
+                </div>
+                <div class="modal-buttons">
+                    <button id="btn-cancel-shape-size" class="btn btn-secondary">Cancel</button>
+                    <button id="btn-confirm-shape-size" class="btn btn-primary">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Shape Color Modal (test-compatible IDs) -->
+        <div id="color-modal" class="modal hidden" role="dialog" aria-modal="true">
+            <div class="modal-content">
+                <h2>Shape Color</h2>
+                <div class="form-group">
+                    <label for="shape-color-input">Choose Color:</label>
+                    <input type="color" id="shape-color-input" class="color-input" value="#3498db">
+                </div>
+                <div class="modal-buttons">
+                    <button id="btn-color-modal-cancel" class="btn btn-secondary">Cancel</button>
+                    <button id="btn-color-modal-ok" class="btn btn-primary">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Shape Size Modal (test-compatible IDs) -->
+        <div id="size-modal" class="modal hidden" role="dialog" aria-modal="true">
+            <div class="modal-content">
+                <h2>Shape Size</h2>
+                <div class="form-group">
+                    <label>Width (cm):</label>
+                    <input type="number" name="width" id="size-modal-width" class="form-input" step="1" min="50">
+                </div>
+                <div class="form-group" id="size-modal-height-group">
+                    <label>Height (cm):</label>
+                    <input type="number" name="height" id="size-modal-height" class="form-input" step="1" min="50">
+                </div>
+                <div class="modal-buttons">
+                    <button id="btn-size-modal-cancel" class="btn btn-secondary">Cancel</button>
+                    <button id="btn-size-modal-ok" class="btn btn-primary">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Shape Position Modal (test-compatible IDs) -->
+        <div id="position-modal" class="modal hidden" role="dialog" aria-modal="true">
+            <div class="modal-content">
+                <h2>Shape Position</h2>
+                <div class="form-group">
+                    <label>X Position (cm):</label>
+                    <input type="number" name="x" id="position-modal-x" class="form-input" step="1">
+                </div>
+                <div class="form-group">
+                    <label>Y Position (cm):</label>
+                    <input type="number" name="y" id="position-modal-y" class="form-input" step="1">
+                </div>
+                <div class="modal-buttons">
+                    <button id="btn-position-modal-cancel" class="btn btn-secondary">Cancel</button>
+                    <button id="btn-position-modal-ok" class="btn btn-primary">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Shape Text Modal (test-compatible IDs) -->
+        <div id="text-modal" class="modal hidden" role="dialog" aria-modal="true">
+            <div class="modal-content">
+                <h2>Shape Text</h2>
+                <div class="form-group">
+                    <label>Text:</label>
+                    <input type="text" id="text-modal-input" class="form-input" placeholder="Enter text...">
+                </div>
+                <div class="modal-buttons">
+                    <button id="btn-text-modal-cancel" class="btn btn-secondary">Cancel</button>
+                    <button id="btn-text-modal-ok" class="btn btn-primary">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Workbook Name Modal -->
+        <div id="workbook-name-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="workbook-modal-title">
+            <div class="modal-content">
+                <h2 id="workbook-modal-title">Workbook Name</h2>
+                <div class="form-group">
+                    <label for="workbook-name-input">Name:</label>
+                    <input type="text" id="workbook-name-input" class="form-input" placeholder="Enter workbook name...">
+                </div>
+                <div class="modal-buttons">
+                    <button id="btn-cancel-workbook-name" class="btn btn-secondary">Cancel</button>
+                    <button id="btn-confirm-workbook-name" class="btn btn-primary">OK</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Board Name Modal -->
+        <div id="board-name-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="board-name-modal-title">
+            <div class="modal-content">
+                <h2 id="board-name-modal-title">Rename Board</h2>
+                <div class="form-group">
+                    <label for="board-name-input">Name:</label>
+                    <input type="text" id="board-name-input" class="form-input" placeholder="Enter board name...">
+                </div>
+                <div class="modal-buttons">
+                    <button id="btn-cancel-board-name" class="btn btn-secondary">Cancel</button>
+                    <button id="btn-confirm-board-name" class="btn btn-primary">OK</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Confirm New Workbook Modal -->
+        <div id="confirm-new-workbook-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-new-workbook-title">
+            <div class="modal-content">
+                <h2 id="confirm-new-workbook-title">Create New Workbook?</h2>
+                <div class="form-group">
+                    <p>Current work will be lost if not saved. Do you want to continue?</p>
+                </div>
+                <div class="modal-buttons">
+                    <button id="btn-cancel-new-workbook" class="btn btn-secondary">Cancel</button>
+                    <button id="btn-confirm-new-workbook" class="btn btn-primary">Create New Workbook</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Message Modal -->
+        <div id="message-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="message-modal-title" aria-describedby="message-modal-text">
+            <div class="modal-content">
+                <h2 id="message-modal-title">Message</h2>
+                <div class="form-group">
+                    <p id="message-modal-text" aria-live="assertive"></p>
+                </div>
+                <div class="modal-buttons">
+                    <button id="btn-message-modal-ok" class="btn btn-primary">OK</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Board Canvas Context Menu (right-click on empty board space) -->
+        <div id="board-canvas-context-menu" class="context-menu hidden">
+            <div class="context-menu-item" data-action="reset-to-parent">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="1 4 1 10 7 10"/>
+                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                </svg>
+                Reset to Parent
+            </div>
+        </div>
+
+        <!-- File Menu -->
+        <div id="file-menu" class="context-menu hidden">
+            <div class="context-menu-item" data-action="new-board">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="3" y1="9" x2="21" y2="9"></line>
+                    <line x1="12" y1="9" x2="12" y2="21"></line>
+                </svg>
+                New Board
+            </div>
+            <div class="context-menu-item" data-action="new-workbook">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+                    <polyline points="13 2 13 9 20 9"/>
+                </svg>
+                New Workbook
+            </div>
+            <div class="context-menu-divider"></div>
+            <div class="context-menu-item" data-action="open">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                </svg>
+                Open Workbook
+            </div>
+            <div class="context-menu-divider"></div>
+            <div class="context-menu-item" data-action="save">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                    <polyline points="17 21 17 13 7 13 7 21"/>
+                    <polyline points="7 3 7 8 15 8"/>
+                </svg>
+                Save
+            </div>
+            <div class="context-menu-item" data-action="save-as">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                    <polyline points="17 21 17 13 7 13 7 21"/>
+                    <polyline points="7 3 7 8 15 8"/>
+                </svg>
+                Save As...
+            </div>
+            <div class="context-menu-divider"></div>
+            <div class="context-menu-item" data-action="export-board">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                Export Board
+            </div>
+            <div class="context-menu-item" data-action="import-board">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                Import Board
+            </div>
+            <div class="context-menu-divider"></div>
+            <div class="context-menu-item" data-action="export-workbook">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                    <polyline points="17 21 17 13 7 13 7 21"/>
+                    <polyline points="7 3 7 8 15 8"/>
+                </svg>
+                Export Workbook
+            </div>
+            <div class="context-menu-item" data-action="import-workbook">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="12" y1="12" x2="12" y2="18"></line>
+                    <line x1="9" y1="15" x2="15" y2="15"></line>
+                </svg>
+                Import Workbook
+            </div>
+        </div>
+
+        <!-- Animation Quality Menu -->
+        <div id="animation-menu" class="context-menu hidden">
+            <div class="context-menu-item" data-action="animation" data-width="4500" data-height="2500">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="2" width="28" height="20" rx="2" ry="2"/>
+                    <line x1="7" y1="2" x2="7" y2="22"/>
+                    <line x1="17" y1="2" x2="17" y2="22"/>
+                    <line x1="2" y1="12" x2="22" y2="12"/>
+                    <line x1="2" y1="7" x2="7" y2="7"/>
+                    <line x1="2" y1="17" x2="7" y2="17"/>
+                    <line x1="17" y1="7" x2="22" y2="7"/>
+                    <line x1="17" y1="17" x2="22" y2="17"/>
+                </svg>
+                Highest Quality (4500×2500)
+            </div>
+            <div class="context-menu-item" data-action="animation" data-width="2250" data-height="1250">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="2" width="28" height="20" rx="2" ry="2"/>
+                    <line x1="7" y1="2" x2="7" y2="22"/>
+                    <line x1="17" y1="2" x2="17" y2="22"/>
+                    <line x1="2" y1="12" x2="22" y2="12"/>
+                    <line x1="2" y1="7" x2="7" y2="7"/>
+                    <line x1="2" y1="17" x2="7" y2="17"/>
+                    <line x1="17" y1="7" x2="22" y2="7"/>
+                    <line x1="17" y1="17" x2="22" y2="17"/>
+                </svg>
+                High Quality (2250×1250)
+            </div>
+            <div class="context-menu-item" data-action="animation" data-width="1800" data-height="1000">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="2" width="28" height="20" rx="2" ry="2"/>
+                    <line x1="7" y1="2" x2="7" y2="22"/>
+                    <line x1="17" y1="2" x2="17" y2="22"/>
+                    <line x1="2" y1="12" x2="22" y2="12"/>
+                    <line x1="2" y1="7" x2="7" y2="7"/>
+                    <line x1="2" y1="17" x2="7" y2="17"/>
+                    <line x1="17" y1="7" x2="22" y2="7"/>
+                    <line x1="17" y1="17" x2="22" y2="17"/>
+                </svg>
+                Normal Quality (1800×1000)
+            </div>
+            <div class="context-menu-item" data-action="animation" data-width="1125" data-height="625">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="2" width="28" height="20" rx="2" ry="2"/>
+                    <line x1="7" y1="2" x2="7" y2="22"/>
+                    <line x1="17" y1="2" x2="17" y2="22"/>
+                    <line x1="2" y1="12" x2="22" y2="12"/>
+                    <line x1="2" y1="7" x2="7" y2="7"/>
+                    <line x1="2" y1="17" x2="7" y2="17"/>
+                    <line x1="17" y1="7" x2="22" y2="7"/>
+                    <line x1="17" y1="17" x2="22" y2="17"/>
+                </svg>
+                Low Quality (1125×625)
+            </div>
+            <div class="context-menu-item" data-action="animation" data-width="900" data-height="500">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="2" width="28" height="20" rx="2" ry="2"/>
+                    <line x1="7" y1="2" x2="7" y2="22"/>
+                    <line x1="17" y1="2" x2="17" y2="22"/>
+                    <line x1="2" y1="12" x2="22" y2="12"/>
+                    <line x1="2" y1="7" x2="7" y2="7"/>
+                    <line x1="2" y1="17" x2="7" y2="17"/>
+                    <line x1="17" y1="7" x2="22" y2="7"/>
+                    <line x1="17" y1="17" x2="22" y2="17"/>
+                </svg>
+                Lowest Quality (900×500)
+            </div>
+        </div>
+
+        <!-- Screenshot Quality Menu -->
+        <div id="screenshot-menu" class="context-menu hidden">
+            <div class="context-menu-item" data-action="screenshot" data-width="4500" data-height="2500">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                </svg>
+                Highest Quality (4500×2500)
+            </div>
+            <div class="context-menu-item" data-action="screenshot" data-width="2250" data-height="1250">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                </svg>
+                High Quality (2250×1250)
+            </div>
+            <div class="context-menu-item" data-action="screenshot" data-width="1800" data-height="1000">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                </svg>
+                Normal Quality (1800×1000)
+            </div>
+            <div class="context-menu-item" data-action="screenshot" data-width="1125" data-height="625">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                </svg>
+                Low Quality (1125×625)
+            </div>
+            <div class="context-menu-item" data-action="screenshot" data-width="900" data-height="500">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                </svg>
+                Lowest Quality (900×500)
+            </div>
+        </div>
+
+        <!-- Board Context Menu -->
+        <div id="board-context-menu" class="context-menu hidden">
+            <div class="context-menu-item" data-action="rename">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
+                Rename
+            </div>
+            <div class="context-menu-item" data-action="add-child">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 5v14M5 12h14"/>
+                </svg>
+                Add Child Board
+            </div>
+            <div class="context-menu-item" data-action="duplicate">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                Duplicate
+            </div>
+            <div class="context-menu-divider"></div>
+            <div class="context-menu-item" data-action="remove">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+                Remove
+            </div>
+        </div>
+
+        <!-- Generic Confirmation Modal -->
+        <div id="confirm-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-text">
+            <div class="modal-content">
+                <h2 id="confirm-modal-title">Confirm</h2>
+                <div class="form-group">
+                    <p id="confirm-modal-text" aria-live="assertive"></p>
+                </div>
+                <div class="modal-buttons">
+                    <button id="btn-confirm-modal-cancel" class="btn btn-secondary">Cancel</button>
+                    <button id="btn-confirm-modal-ok" class="btn btn-primary">OK</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Generic Prompt Modal -->
+        <div id="prompt-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="prompt-modal-title">
+            <div class="modal-content">
+                <h2 id="prompt-modal-title">Input</h2>
+                <div class="form-group">
+                    <label for="prompt-modal-input" id="prompt-modal-label">Enter value:</label>
+                    <input type="text" id="prompt-modal-input" class="form-input" placeholder="">
+                </div>
+                <div class="modal-buttons">
+                    <button id="btn-prompt-modal-cancel" class="btn btn-secondary">Cancel</button>
+                    <button id="btn-prompt-modal-ok" class="btn btn-primary">OK</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hidden file input for imports -->
+        <input type="file" id="import-board-input" accept=".json" style="display: none;">
+        <input type="file" id="import-workbook-input" accept=".json" style="display: none;">
+
+        <!-- Toast Container -->
+        <div id="toast-container" class="toast-container"></div>
+    </div>
+
+    <!-- App Scripts -->
+    <script src="js/state.js"></script>
+    <script src="js/board.js"></script>
+    <script src="js/teams.js"></script>
+    <script src="js/players.js"></script>
+    <script src="js/balls.js"></script>
+    <script src="js/plates.js"></script>
+    <script src="js/elements.js"></script>
+    <script src="js/shapes.js"></script>
+    <script src="js/drawings.js"></script>
+    <script src="js/animations.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/breadcrumb.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
