@@ -57,11 +57,13 @@ const Players = {
             return;
         }
 
-        // Clear existing player elements and player names (not element SVGs or ball SVGs)
-        const playerElements = container.querySelectorAll('.player');
-        playerElements.forEach(el => el.remove());
-        const playerNames = container.querySelectorAll('.player-name');
-        playerNames.forEach(el => el.remove());
+        // Clear existing player elements, names, and touch overlays
+        container.querySelectorAll('.player').forEach(el => el.remove());
+        container.querySelectorAll('.player-name').forEach(el => el.remove());
+        container.querySelectorAll('.touch-overlay[data-player-id]').forEach(el => el.remove());
+
+        // Remove debug boxes for players
+        document.querySelectorAll('.debug-tolerance-box[data-debug-type="player"]').forEach(box => box.remove());
 
         // Add current players
         AppState.players.forEach(player => {
@@ -87,6 +89,24 @@ const Players = {
 
                 const element = this.createPlayerElement(player);
                 container.appendChild(element);
+
+                // DEBUG: Show bounding box for player
+                if (typeof Utils !== 'undefined') {
+                    Utils.showDebugBox(player.id, 'player');
+                }
+
+                // Add a larger transparent hit area in touch mode
+                if (document.body.classList.contains('touch-mode')) {
+                    const pos = Board.boardToScreen(player.x, player.y);
+                    const overlay = document.createElement('div');
+                    overlay.className = 'touch-overlay';
+                    overlay.style.left = pos.x + 'px';
+                    overlay.style.top  = pos.y + 'px';
+                    overlay.style.zIndex = '150'; // Player overlay = visual z-index (50) + 100
+                    overlay.style.pointerEvents = 'auto';
+                    overlay.dataset.playerId = player.id;
+                    container.appendChild(overlay);
+                }
             }
         });
 
@@ -119,6 +139,7 @@ const Players = {
 
         div.style.width = playerSize + 'px';
         div.style.height = playerSize + 'px';
+        div.style.zIndex = '50'; // Players visual z-index (integer)
 
         // Font size should scale proportionally (about 60% of player size)
         div.style.fontSize = (playerSize * 0.6) + 'px';
@@ -272,26 +293,24 @@ const Players = {
         // Context menu for players (right-click)
         container.addEventListener('contextmenu', (e) => {
             if (!e.target) return;
-            const target = e.target.closest('.player');
-            if (target && target.dataset.playerId) {
+            const playerEl = e.target.closest('.player');
+            const playerId = playerEl?.dataset.playerId || e.target.dataset?.playerId;
+            if (playerId) {
                 e.preventDefault();
-                const player = AppState.getPlayer(target.dataset.playerId);
-                if (player) {
-                    this.showContextMenu(e.clientX, e.clientY, player);
-                }
+                const player = AppState.getPlayer(playerId);
+                if (player) this.showContextMenu(e.clientX, e.clientY, player);
             }
         });
 
         // Context menu for players (double-click)
         container.addEventListener('dblclick', (e) => {
             if (!e.target) return;
-            const target = e.target.closest('.player');
-            if (target && target.dataset.playerId) {
+            const playerEl = e.target.closest('.player');
+            const playerId = playerEl?.dataset.playerId || e.target.dataset?.playerId;
+            if (playerId) {
                 e.preventDefault();
-                const player = AppState.getPlayer(target.dataset.playerId);
-                if (player) {
-                    this.showContextMenu(e.clientX, e.clientY, player);
-                }
+                const player = AppState.getPlayer(playerId);
+                if (player) this.showContextMenu(e.clientX, e.clientY, player);
             }
         });
     },
@@ -306,28 +325,29 @@ const Players = {
         // Safety check for null target
         if (!e.target) return;
 
-        const target = e.target.closest('.player');
-        if (target) {
-            const player = AppState.getPlayer(target.id);
+        // Support touch overlays: check for data-player-id directly on target (overlay)
+        // or traverse up to find the nearest .player element
+        const playerEl = e.target.closest('.player');
+        const playerId = playerEl?.dataset.playerId || e.target.dataset?.playerId;
+        const target = playerEl || (playerId ? document.getElementById(playerId) : null);
+
+        if (target && playerId) {
+            // In touch mode, when overlays overlap, only handle if THIS overlay is on top
+            if (document.body.classList.contains('touch-mode')) {
+                const topElement = document.elementFromPoint(e.clientX, e.clientY);
+                // If the top element is a touch overlay but NOT this player's overlay, don't handle this click
+                if (topElement && topElement.classList.contains('touch-overlay') && topElement.dataset.playerId !== playerId) {
+                    return;
+                }
+            }
+
+            const player = AppState.getPlayer(playerId);
             if (player) {
-                // Check if player is already selected
-                if (AppState.selectedPlayer && AppState.selectedPlayer.id === player.id) {
-                    // Already selected, prepare to drag
-                    AppState.draggedPlayer = player;
-                    AppState.updatePositionDisplay(player.x, player.y, player, 'player');
+                const isTouchMode = document.body.classList.contains('touch-mode');
+                const isAlreadySelected = AppState.selectedPlayer && AppState.selectedPlayer.id === player.id;
 
-                    const pos = Board.boardToScreen(player.x, player.y);
-                    const rect = target.getBoundingClientRect();
-                    const containerRect = document.getElementById('board-area').getBoundingClientRect();
-
-                    AppState.dragOffset = {
-                        x: e.clientX - rect.left - rect.width / 2,
-                        y: e.clientY - rect.top - rect.height / 2
-                    };
-
-                    target.classList.add('dragging');
-                } else {
-                    // Not selected yet, just select it
+                // Select the player if not already selected
+                if (!isAlreadySelected) {
                     AppState.selectedPlayer = player;
                     AppState.selectedElement = null;
                     AppState.selectedBall = null;
@@ -337,31 +357,51 @@ const Players = {
                     AppState.selectedGhost = null;
                     AppState.updatePositionDisplay(player.x, player.y, player, 'player');
 
-                    // Hide path context menu when selecting a player
                     const pathMenu = document.getElementById('path-context-menu');
-                    if (pathMenu) {
-                        pathMenu.classList.add('hidden');
-                    }
+                    if (pathMenu) pathMenu.classList.add('hidden');
 
-                    this.render(); // Re-render to show selection
-                    if (typeof Elements !== 'undefined') {
-                        Elements.render();
-                    }
-                    if (typeof Balls !== 'undefined') {
-                        Balls.render();
-                    }
-                    if (typeof Plates !== 'undefined') {
-                        Plates.render();
-                    }
-                    if (typeof Shapes !== 'undefined') {
-                        Shapes.render();
-                    }
-                    if (typeof Animations !== 'undefined') {
-                        Animations.renderParentPaths();
-                    }
+                    // Render in consistent order: shapes(25) first, then players/balls/plates/elements(30)
+                    // Last rendered is on top in DOM, so elements are on top when same z-index
+                    if (typeof Shapes !== 'undefined') Shapes.render();
+                    this.render();
+                    if (typeof Balls !== 'undefined') Balls.render();
+                    if (typeof Plates !== 'undefined') Plates.render();
+                    if (typeof Elements !== 'undefined') Elements.render();
+                    if (typeof Animations !== 'undefined') Animations.renderParentPaths();
+                }
+
+                // In touch mode: immediately start drag (skip two-tap workflow)
+                // In desktop mode: start drag only on second tap (already selected)
+                if (isTouchMode || isAlreadySelected) {
+                    // Clear all other drag states to prevent cross-entity drag interference
+                    AppState.draggedElement = null;
+                    AppState.draggedShape = null;
+                    AppState.draggedBall = null;
+                    AppState.draggedPlate = null;
+                    AppState.draggedPlayer = player;
+                    AppState.updatePositionDisplay(player.x, player.y, player, 'player');
+
+                    // Calculate drag offset to prevent jump when dragging from edge
+                    // dragOffset is in screen pixels relative to canvas
+                    const canvasRect = AppState.canvas.getBoundingClientRect();
+                    const playerScreenPos = Board.boardToScreen(player.x, player.y);
+                    AppState.dragOffset = {
+                        x: e.clientX - canvasRect.left - playerScreenPos.x,
+                        y: e.clientY - canvasRect.top - playerScreenPos.y
+                    };
+
+                    target.classList.add('dragging');
                 }
             }
         } else {
+            // Don't deselect if click missed the rotation handle slightly (always)
+            // or missed the player body in touch mode
+            if (AppState.selectedPlayer && (
+                Utils.isNearElement(e.clientX, e.clientY, this.rotationHandle) ||
+                (document.body.classList.contains('touch-mode') &&
+                 Utils.isNearElement(e.clientX, e.clientY, document.getElementById(AppState.selectedPlayer.id), 30))
+            )) return;
+
             AppState.selectedPlayer = null;
             if (!AppState.selectedElement && !AppState.selectedBall && !AppState.selectedPlate) {
                 AppState.hidePositionDisplay();
@@ -372,7 +412,7 @@ const Players = {
 
     // Handle mouse move
     handleMouseMove(e) {
-        if (!AppState.draggedPlayer || AppState.currentTool !== 'select') return;
+        if (!AppState.draggedPlayer || AppState.currentTool !== 'select' || this.isRotating) return;
 
         e.preventDefault();
 
@@ -426,6 +466,20 @@ const Players = {
                         nameElement.style.top = (pos.y) + 'px';
                         break;
                 }
+            }
+
+            // Update touch overlay position during drag (touch mode)
+            if (document.body.classList.contains('touch-mode')) {
+                const overlay = document.querySelector(`.touch-overlay[data-player-id="${AppState.draggedPlayer.id}"]`);
+                if (overlay) {
+                    overlay.style.left = pos.x + 'px';
+                    overlay.style.top = pos.y + 'px';
+                }
+            }
+
+            // Update debug box position during drag
+            if (typeof Utils !== 'undefined') {
+                Utils.updateDebugBox(AppState.draggedPlayer.id, 'player');
             }
         }
 
@@ -508,17 +562,13 @@ const Players = {
         const player = AppState.selectedPlayer;
         const pos = Board.boardToScreen(player.x, player.y);
 
-        const canvasRect = AppState.canvas.getBoundingClientRect();
-        const scaleX = canvasRect.width / AppState.boardWidth;
-
-        const handleDistanceInBoardUnits = 150;
-        const handleDistance = handleDistanceInBoardUnits * scaleX;
+        const handleDistance = 50;
         const rotation = (player.rotation || 0) * Math.PI / 180;
 
         const handleX = pos.x + Math.cos(rotation - Math.PI / 2) * handleDistance;
         const handleY = pos.y + Math.sin(rotation - Math.PI / 2) * handleDistance;
 
-        const handleSize = Math.max(20 * scaleX, 15);
+        const handleSize = 28;
 
         this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
         this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
@@ -537,20 +587,13 @@ const Players = {
             const player = AppState.selectedPlayer;
             const pos = Board.boardToScreen(player.x, player.y);
 
-            // Calculate scale factor to keep handle size and distance constant regardless of zoom
-            const canvasRect = AppState.canvas.getBoundingClientRect();
-            const scaleX = canvasRect.width / AppState.boardWidth;
-
-            // Use board units (150cm away from player) so it scales with zoom
-            const handleDistanceInBoardUnits = 150;
-            const handleDistance = handleDistanceInBoardUnits * scaleX;
+            const handleDistance = 50;
             const rotation = (player.rotation || 0) * Math.PI / 180;
 
             const handleX = pos.x + Math.cos(rotation - Math.PI / 2) * handleDistance;
             const handleY = pos.y + Math.sin(rotation - Math.PI / 2) * handleDistance;
 
-            // Handle size also scales with board (20cm in board units)
-            const handleSize = Math.max(20 * scaleX, 15); // minimum 15px
+            const handleSize = 28;
 
             // Create rotation handle
             this.rotationHandle = document.createElement('div');
@@ -565,6 +608,7 @@ const Players = {
                 e.preventDefault();
                 e.stopPropagation();
                 this.isRotating = true;
+                AppState.draggedPlayer = null;
                 AppState.updatePositionDisplay(player.x, player.y, player, 'player');
             });
 
@@ -596,6 +640,11 @@ const Players = {
 
         // Update rotation handle position (lightweight update)
         this.updateRotationHandlePosition();
+
+        // Update debug box during rotation
+        if (typeof Utils !== 'undefined') {
+            Utils.updateDebugBox(player.id, 'player');
+        }
 
         // Re-render
         this.render();

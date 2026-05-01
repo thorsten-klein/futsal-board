@@ -11,9 +11,9 @@ const Elements = {
         'small-goal': { x: 1, y: 0.5 },   // Goal line (right edge) at vertical center
         'pole': { x: 0.5, y: 0.9 },       // Center of base ellipse (cx=45/90, cy=270/300)
         'ladder': { x: 0.5, y: 0.5 },     // Geometric center
-        'rebounce': { x: 0.5, y: 1.0 },   // Center bottom
-        'small-wall': { x: 0.5, y: 1.0 }, // Center bottom
-        'big-wall': { x: 0.5, y: 1.0 },   // Center bottom
+        'rebounce': { x: 0.5, y: 0.5 },    // Geometric center
+        'small-wall': { x: 0.5, y: 0.5 }, // Geometric center
+        'big-wall': { x: 0.5, y: 0.5 },   // Geometric center
         'small-hurdle': { x: 0.5, y: 0.5 } // Geometric center
     },
 
@@ -233,29 +233,22 @@ const Elements = {
             const elementId = Utils.findEntityId(e.target, this.layer, 'element');
 
             if (elementId) {
+                // In touch mode, when overlays overlap, only handle if THIS overlay is on top
+                if (document.body.classList.contains('touch-mode')) {
+                    const topElement = document.elementFromPoint(e.clientX, e.clientY);
+                    // If the top element is a touch overlay but NOT this element's overlay, don't handle this click
+                    if (topElement && topElement.classList.contains('touch-overlay') && topElement.dataset.element !== elementId) {
+                        return;
+                    }
+                }
+
                 const element = AppState.getElement(elementId);
                 if (element) {
-                    // Check if element is already selected
-                    if (AppState.selectedElement && AppState.selectedElement.id === element.id) {
-                        // Don't allow dragging if inherited
-                        if (element.inherited) {
-                            return;
-                        }
+                    const isTouchMode = document.body.classList.contains('touch-mode');
+                    const isAlreadySelected = AppState.selectedElement && AppState.selectedElement.id === element.id;
 
-                        // Already selected, prepare to drag
-                        AppState.draggedElement = element;
-                        AppState.updatePositionDisplay(element.x, element.y, element, 'element');
-
-                        const rect = AppState.canvas.getBoundingClientRect();
-                        const scaleX = AppState.boardWidth / rect.width;
-                        const scaleY = AppState.boardHeight / rect.height;
-
-                        AppState.dragOffset = {
-                            x: (e.clientX - rect.left) * scaleX - element.x,
-                            y: (e.clientY - rect.top) * scaleY - element.y
-                        };
-                    } else {
-                        // Not selected yet, just select it (allowed even if locked)
+                    // Select the element if not already selected (allowed even if inherited)
+                    if (!isAlreadySelected) {
                         AppState.selectedElement = element;
                         AppState.selectedPlayer = null;
                         AppState.selectedBall = null;
@@ -265,22 +258,38 @@ const Elements = {
                         AppState.selectedGhost = null;
                         AppState.updatePositionDisplay(element.x, element.y, element, 'element');
 
-                        this.render(); // Re-render to show selection
-                        if (typeof Players !== 'undefined') {
-                            Players.render();
-                        }
-                        if (typeof Balls !== 'undefined') {
-                            Balls.render();
-                        }
-                        if (typeof Plates !== 'undefined') {
-                            Plates.render();
-                        }
-                        if (typeof Shapes !== 'undefined') {
-                            Shapes.render();
-                        }
-                        if (typeof Animations !== 'undefined') {
-                            Animations.renderParentPaths();
-                        }
+                        // Render in consistent order: shapes(25) first, then players/balls/plates/elements(30)
+                        // Last rendered is on top in DOM, so elements are on top when same z-index
+                        if (typeof Shapes !== 'undefined') Shapes.render();
+                        if (typeof Players !== 'undefined') Players.render();
+                        if (typeof Balls !== 'undefined') Balls.render();
+                        if (typeof Plates !== 'undefined') Plates.render();
+                        this.render(); // Elements last - on top in DOM order
+                        if (typeof Animations !== 'undefined') Animations.renderParentPaths();
+                    }
+
+                    // Start drag: immediately in touch mode, or on second tap in desktop
+                    // Inherited elements cannot be dragged
+                    if (!element.inherited && (isTouchMode || isAlreadySelected)) {
+                        // Clear all other drag states to prevent cross-entity drag interference
+                        AppState.draggedShape = null;
+                        AppState.draggedPlayer = null;
+                        AppState.draggedBall = null;
+                        AppState.draggedPlate = null;
+                        AppState.draggedElement = element;
+                        AppState.updatePositionDisplay(element.x, element.y, element, 'element');
+
+                        const rect = AppState.canvas.getBoundingClientRect();
+                        const scaleX = AppState.boardWidth / rect.width;
+                        const scaleY = AppState.boardHeight / rect.height;
+
+                        // Calculate drag offset to prevent jump when dragging from edge
+                        // In touch mode, when clicking on an overlay, use the element's anchor point (element.x, element.y)
+                        // because the drag calculation in setupEntityDrag updates the element position (anchor point)
+                        AppState.dragOffset = {
+                            x: (e.clientX - rect.left) * scaleX - element.x,
+                            y: (e.clientY - rect.top)  * scaleY - element.y
+                        };
                     }
 
                     e.preventDefault();
@@ -288,6 +297,14 @@ const Elements = {
                 }
             } else {
                 // Clicked on empty space - deselect element but don't interfere with other selections
+                // Don't deselect if click missed the rotation handle slightly (always)
+                // or missed the element body in touch mode
+                if (AppState.selectedElement && (
+                    Utils.isNearElement(e.clientX, e.clientY, this.rotationHandle) ||
+                    (document.body.classList.contains('touch-mode') &&
+                     Utils.isNearElement(e.clientX, e.clientY, document.getElementById(AppState.selectedElement.id), 30))
+                )) return;
+
                 if (AppState.selectedElement) {
                     AppState.selectedElement = null;
                     if (!AppState.selectedPlayer && !AppState.selectedBall && !AppState.selectedPlate) {
@@ -302,10 +319,27 @@ const Elements = {
             dragKey: 'draggedElement',
             selectedKey: 'selectedElement',
             type: 'element',
-            updateDOM(el, x, y, pxW, pxH) {
+            updateDOM: (el, x, y, pxW, pxH) => {
                 el.style.left = (x * (pxW / AppState.boardWidth))  + 'px';
                 el.style.top  = (y * (pxH / AppState.boardHeight)) + 'px';
                 // rotation/anchor transform is maintained from original render
+
+                // Update touch overlay position if it exists
+                if (document.body.classList.contains('touch-mode')) {
+                    const overlay = this.layer.querySelector(`.touch-overlay[data-element="${el.dataset.element}"]`);
+                    // Calculate geometrical center position for the overlay
+                    const element = AppState.getElement(el.dataset.element);
+                    if (element) {
+                        const center = this.getGeometricalCenter(element);
+                        overlay.style.left = (center.x * (pxW / AppState.boardWidth))  + 'px';
+                        overlay.style.top  = (center.y * (pxH / AppState.boardHeight)) + 'px';
+                    }
+                }
+
+                // Update debug box position during drag
+                if (typeof Utils !== 'undefined') {
+                    Utils.updateDebugBox(el.dataset.element, 'element');
+                }
             },
             afterMove: () => {
                 if (!this.isRotating) this.updateRotationHandlePosition();
@@ -678,12 +712,21 @@ const Elements = {
             return;
         }
 
+        // Prevent recursive rendering - if we're already rendering, skip
+        if (this._isRendering) {
+            return;
+        }
+        this._isRendering = true;
 
-        // Clear ALL element SVGs from the DOM (not just tracked ones)
+        // Clear ALL element SVGs and touch overlays from the DOM (not just tracked ones)
         this.layer.querySelectorAll('.element-svg').forEach(svg => {
             svg.remove();
         });
+        this.layer.querySelectorAll('.touch-overlay[data-element]').forEach(el => el.remove());
         this.elementSvgs = {};
+
+        // Remove debug boxes for elements
+        document.querySelectorAll('.debug-tolerance-box[data-debug-type="element"]').forEach(box => box.remove());
 
         // Render each element
         AppState.elements.forEach(element => {
@@ -695,6 +738,45 @@ const Elements = {
 
         // Update rotation handle if an element is selected
         this.updateRotationHandle();
+
+        // Reset rendering flag
+        this._isRendering = false;
+    },
+
+    // Get element dimensions in board units (cm)
+    getElementDimensions(type) {
+        const dimensions = {
+            'cone': { width: 100, height: 120 },
+            'goal': { width: 100, height: 300 },
+            'small-goal': { width: 50, height: 100 },
+            'pole': { width: 90, height: 300 },
+            'ladder': { width: 100, height: 600 },
+            'rebounce': { width: 50, height: 400 },
+            'small-wall': { width: 50, height: 100 },
+            'big-wall': { width: 50, height: 200 },
+            'small-hurdle': { width: 100, height: 60 }
+        };
+        return dimensions[type] || { width: 100, height: 100 };
+    },
+
+    // Calculate geometrical center position from anchor position
+    getGeometricalCenter(element) {
+        const anchor = this.getAnchor(element.type);
+        const dimensions = this.getElementDimensions(element.type);
+        const rotation = (element.rotation || 0) * Math.PI / 180;
+
+        // Offset from anchor to geometrical center (in board units)
+        const offsetX = (0.5 - anchor.x) * dimensions.width;
+        const offsetY = (0.5 - anchor.y) * dimensions.height;
+
+        // Apply rotation to the offset
+        const rotatedOffsetX = offsetX * Math.cos(rotation) - offsetY * Math.sin(rotation);
+        const rotatedOffsetY = offsetX * Math.sin(rotation) + offsetY * Math.cos(rotation);
+
+        return {
+            x: element.x + rotatedOffsetX,
+            y: element.y + rotatedOffsetY
+        };
     },
 
     // Render individual element
@@ -703,6 +785,50 @@ const Elements = {
         if (svg) {
             this.layer.appendChild(svg);
             this.elementSvgs[element.id] = svg;
+
+            // DEBUG: Show bounding box for element
+            if (typeof Utils !== 'undefined') {
+                Utils.showDebugBox(element.id, 'element');
+            }
+
+            // Add a larger transparent hit area in touch mode
+            if (document.body.classList.contains('touch-mode')) {
+                const canvasRect = AppState.canvas.getBoundingClientRect();
+                const scaleX = canvasRect.width / AppState.boardWidth;
+                const scaleY = canvasRect.height / AppState.boardHeight;
+
+                // Position overlay at geometrical center, not anchor point
+                const center = this.getGeometricalCenter(element);
+                const x = center.x * scaleX;
+                const y = center.y * scaleY;
+
+                const overlay = document.createElement('div');
+                overlay.className = 'touch-overlay';
+                overlay.style.left = x + 'px';
+                overlay.style.top = y + 'px';
+                // Fixed 60px circular overlay for easier touch selection
+                // (same as balls, plates, and players)
+                // Element overlay = visual z-index + 100 (integers only)
+                const elementOverlayZIndex = {
+                    'cone': '130',          // 30 + 100
+                    'ladder': '131',        // 31 + 100
+                    'rebounce': '132',      // 32 + 100
+                    'big-wall': '133',      // 33 + 100
+                    'small-wall': '133',    // 33 + 100
+                    'small-goal': '134',    // 34 + 100
+                    'goal': '135',          // 35 + 100
+                    'pole': '136',          // 36 + 100
+                    'small-hurdle': '137'   // 37 + 100
+                };
+                overlay.style.zIndex = elementOverlayZIndex[element.type] || '130';
+                overlay.style.pointerEvents = 'auto';
+                overlay.dataset.element = element.id;
+
+                // Keep pointer events enabled on overlay even when selected
+                // The rotation handle has a higher z-index (1001) so it will receive clicks
+
+                this.layer.appendChild(overlay);
+            }
         } else {
             console.error('Failed to create SVG for element:', element);
         }
@@ -740,6 +866,20 @@ const Elements = {
         svg.style.overflow = 'visible';
         svg.style.pointerEvents = 'all';
         svg.style.touchAction = 'none';
+
+        // Set z-index based on element type (integers only)
+        const elementZIndex = {
+            'cone': '30',           // Base element
+            'ladder': '31',
+            'rebounce': '32',
+            'big-wall': '33',
+            'small-wall': '33',
+            'small-goal': '34',
+            'goal': '35',
+            'pole': '36',
+            'small-hurdle': '37'    // Highest element
+        };
+        svg.style.zIndex = elementZIndex[element.type] || '30';
 
         // Always show default cursor on board elements
         svg.style.cursor = 'default';
@@ -1042,19 +1182,18 @@ const Elements = {
         const scaleX = canvasRect.width / AppState.boardWidth;
         const scaleY = canvasRect.height / AppState.boardHeight;
 
-        // Calculate handle position - use board units (150cm) so it scales with zoom
         const centerX = element.x * scaleX;
         const centerY = element.y * scaleY;
-        const handleDistanceInBoardUnits = 150;
-        const handleDistance = handleDistanceInBoardUnits * scaleX;
+        const elementBoardHalfHeights = {
+            'ladder': 300, 'rebounce': 200, 'big-wall': 100, 'small-wall': 50, 'small-hurdle': 30
+        };
+        const halfH = elementBoardHalfHeights[element.type];
+        const handleDistance = halfH ? halfH * scaleY + 20 : 50;
         const rotationRad = (element.rotation || 0) * Math.PI / 180;
 
-        // Different handle positions for different element types
         let handleAngle;
         if (element.type === 'goal' || element.type === 'small-goal') {
             handleAngle = rotationRad + Math.PI;
-        } else if (element.type === 'ladder') {
-            handleAngle = rotationRad - Math.PI / 2;
         } else {
             handleAngle = rotationRad - Math.PI / 2;
         }
@@ -1062,10 +1201,19 @@ const Elements = {
         const handleX = centerX + Math.cos(handleAngle) * handleDistance;
         const handleY = centerY + Math.sin(handleAngle) * handleDistance;
 
-        const handleSize = Math.max(20 * scaleX, 15);
+        const handleSize = 28;
 
-        this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
-        this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
+        // Check if handle is in board-container (needs offset) or board-area (no offset)
+        const isInBoardContainer = this.rotationHandle.parentElement?.classList.contains('board-container');
+        if (isInBoardContainer) {
+            const boardContainer = this.rotationHandle.parentElement;
+            const containerRect = boardContainer.getBoundingClientRect();
+            this.rotationHandle.style.left = (canvasRect.left - containerRect.left + handleX - handleSize / 2) + 'px';
+            this.rotationHandle.style.top = (canvasRect.top - containerRect.top + handleY - handleSize / 2) + 'px';
+        } else {
+            this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
+            this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
+        }
     },
 
     // Update rotation handle position
@@ -1083,50 +1231,60 @@ const Elements = {
             const scaleX = canvasRect.width / AppState.boardWidth;
             const scaleY = canvasRect.height / AppState.boardHeight;
 
-            // Calculate handle position - use board units (150cm) so it scales with zoom
             const centerX = element.x * scaleX;
             const centerY = element.y * scaleY;
-            const handleDistanceInBoardUnits = 150;
-            const handleDistance = handleDistanceInBoardUnits * scaleX;
+            const elementBoardHalfHeights = {
+            'ladder': 300, 'rebounce': 200, 'big-wall': 100, 'small-wall': 50, 'small-hurdle': 30
+        };
+        const halfH = elementBoardHalfHeights[element.type];
+        const handleDistance = halfH ? halfH * scaleY + 20 : 50;
             const rotationRad = (element.rotation || 0) * Math.PI / 180;
 
-            // Different handle positions for different element types
             let handleAngle;
             if (element.type === 'goal' || element.type === 'small-goal') {
-                // For goals: handle behind the goal (on the net side)
-                // Goal line points in the direction of rotation, so handle goes opposite
                 handleAngle = rotationRad + Math.PI;
-            } else if (element.type === 'ladder') {
-                // For ladder: handle above (perpendicular)
-                handleAngle = rotationRad - Math.PI / 2;
             } else {
-                // Default: handle above
                 handleAngle = rotationRad - Math.PI / 2;
             }
 
             const handleX = centerX + Math.cos(handleAngle) * handleDistance;
             const handleY = centerY + Math.sin(handleAngle) * handleDistance;
 
-            // Handle size scales with board (20cm in board units)
-            const handleSize = Math.max(20 * scaleX, 15); // minimum 15px
+            const handleSize = 28;
 
             // Create rotation handle
             this.rotationHandle = document.createElement('div');
             this.rotationHandle.className = 'rotation-handle';
             this.rotationHandle.style.width = handleSize + 'px';
             this.rotationHandle.style.height = handleSize + 'px';
-            this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
-            this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
+            this.rotationHandle.style.zIndex = '1001';
+
+            // Calculate position - if appending to board-container, use canvas offset
+            const boardContainer = document.querySelector('.board-container');
+            if (boardContainer) {
+                const containerRect = boardContainer.getBoundingClientRect();
+                this.rotationHandle.style.left = (canvasRect.left - containerRect.left + handleX - handleSize / 2) + 'px';
+                this.rotationHandle.style.top = (canvasRect.top - containerRect.top + handleY - handleSize / 2) + 'px';
+            } else {
+                this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
+                this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
+            }
 
             // Add event listener
             this.rotationHandle.addEventListener('mousedown', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 this.isRotating = true;
+                AppState.draggedElement = null;
                 AppState.updatePositionDisplay(element.x, element.y, element, 'element');
             });
 
-            this.layer.appendChild(this.rotationHandle);
+            // Append to board-area's parent (board-container) to ensure it's above all SVG elements
+            if (boardContainer) {
+                boardContainer.appendChild(this.rotationHandle);
+            } else {
+                this.layer.appendChild(this.rotationHandle);
+            }
         }
     },
 
@@ -1192,6 +1350,22 @@ const Elements = {
                     width = 100 * scaleX;
                     height = 600 * scaleY;
                     break;
+                case 'rebounce':
+                    width = 50 * scaleX;
+                    height = 400 * scaleY;
+                    break;
+                case 'small-wall':
+                    width = 50 * scaleX;
+                    height = 100 * scaleY;
+                    break;
+                case 'big-wall':
+                    width = 50 * scaleX;
+                    height = 200 * scaleY;
+                    break;
+                case 'small-hurdle':
+                    width = 100 * scaleX;
+                    height = 60 * scaleY;
+                    break;
                 default:
                     width = 100 * scaleX;
                     height = 100 * scaleY;
@@ -1200,6 +1374,26 @@ const Elements = {
             // Update rotation with correct transform
             elementSvg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${element.rotation}deg)`;
             elementSvg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
+        }
+
+        // Update touch overlay position during rotation (if in touch mode)
+        if (document.body.classList.contains('touch-mode')) {
+            const overlay = this.layer.querySelector(`.touch-overlay[data-element="${element.id}"]`);
+            if (overlay) {
+                const canvasRect = AppState.canvas.getBoundingClientRect();
+                const scaleX = canvasRect.width / AppState.boardWidth;
+                const scaleY = canvasRect.height / AppState.boardHeight;
+
+                // Calculate new geometrical center after rotation
+                const center = this.getGeometricalCenter(element);
+                overlay.style.left = (center.x * scaleX) + 'px';
+                overlay.style.top = (center.y * scaleY) + 'px';
+            }
+        }
+
+        // Update debug box during rotation
+        if (typeof Utils !== 'undefined') {
+            Utils.updateDebugBox(element.id, 'element');
         }
 
         // Update rotation handle position

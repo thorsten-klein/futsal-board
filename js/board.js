@@ -32,6 +32,73 @@ const Board = {
                                  e.target.classList.contains('board-container');
 
             if (isBackground) {
+                // A new mousedown on empty background means no entity is being dragged.
+                // Clear any stale drag state that can survive when a touchend fired on
+                // a detached overlay (render() removes and recreates overlays during
+                // mousedown processing, so the touchend target is no longer in the DOM
+                // and its event never reaches setupTouchToMouse to produce a mouseup).
+                AppState.draggedElement = null;
+                AppState.draggedPlayer = null;
+                AppState.draggedBall = null;
+                AppState.draggedPlate = null;
+                AppState.draggedShape = null;
+                AppState.dragOffset = null;
+
+                // In touch mode, don't deselect if click is near the selected entity
+                // This tolerance prevents accidental deselection when trying to interact with the entity
+                if (document.body.classList.contains('touch-mode')) {
+                    // Check if click is near selected element
+                    if (AppState.selectedElement && typeof Elements !== 'undefined') {
+                        const selectedElementDom = document.getElementById(AppState.selectedElement.id);
+                        if (selectedElementDom && Utils.isNearElement(e.clientX, e.clientY, selectedElementDom, 30)) {
+                            e.stopPropagation();
+                            return; // Don't deselect
+                        }
+                    }
+
+                    // Check if click is near selected player
+                    if (AppState.selectedPlayer && typeof Players !== 'undefined') {
+                        const selectedPlayerDom = document.getElementById(AppState.selectedPlayer.id);
+                        if (selectedPlayerDom && Utils.isNearElement(e.clientX, e.clientY, selectedPlayerDom, 30)) {
+                            e.stopPropagation();
+                            return; // Don't deselect
+                        }
+                    }
+
+                    // Check if click is near selected ball
+                    if (AppState.selectedBall && typeof Balls !== 'undefined') {
+                        const selectedBallDom = document.getElementById(AppState.selectedBall.id);
+                        if (selectedBallDom && Utils.isNearElement(e.clientX, e.clientY, selectedBallDom, 30)) {
+                            e.stopPropagation();
+                            return; // Don't deselect
+                        }
+                    }
+
+                    // Check if click is near selected plate
+                    if (AppState.selectedPlate && typeof Plates !== 'undefined') {
+                        const selectedPlateDom = document.getElementById(AppState.selectedPlate.id);
+                        if (selectedPlateDom && Utils.isNearElement(e.clientX, e.clientY, selectedPlateDom, 30)) {
+                            e.stopPropagation();
+                            return; // Don't deselect
+                        }
+                    }
+
+                    // Check if click is inside the touch overlay of selected shape
+                    if (AppState.selectedShape && typeof Shapes !== 'undefined') {
+                        const touchOverlay = document.querySelector(`.touch-overlay[data-shape="${AppState.selectedShape}"]`);
+                        if (touchOverlay) {
+                            const overlayRect = touchOverlay.getBoundingClientRect();
+                            // Check if click is inside the overlay bounds
+                            if (e.clientX >= overlayRect.left && e.clientX <= overlayRect.right &&
+                                e.clientY >= overlayRect.top && e.clientY <= overlayRect.bottom) {
+                                e.stopPropagation();
+                                return; // Don't deselect - click is inside touch overlay
+                            }
+                        }
+                    }
+                }
+                // In non-touch mode, shapes don't need tolerance - they deselect on any background click
+
                 if (AppState.selectedElement || AppState.selectedPlayer || AppState.selectedBall || AppState.selectedPlate || AppState.selectedPath || AppState.selectedGhost || AppState.selectedShape) {
                     AppState.selectedElement = null;
                     AppState.selectedPlayer = null;

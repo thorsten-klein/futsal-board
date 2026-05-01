@@ -29,9 +29,9 @@ test.describe('Shape Creation via Click', () => {
         const shapeEl = page.locator(`[data-shape="${shape.id}"]`);
         await expect(shapeEl).toHaveCount(1);
 
-        // Verify it's a rect element
+        // Verify it has rect elements (hit rect + visible rect)
         const rect = shapeEl.locator('rect');
-        await expect(rect).toHaveCount(1);
+        await expect(rect).toHaveCount(2);
     });
 
     test('click ellipse button adds ellipse at center', async ({ page }) => {

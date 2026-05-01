@@ -63,7 +63,10 @@ test.describe('Animation Progress Bar', () => {
         const fill = page.locator('#animation-progress-fill');
 
         // Initially at 100% (child board with no descendants is at end of hierarchy)
-        await expect(fill).toHaveCSS('width', '350px'); // 100% of 350px container
+        // Check that fill is at 100% by comparing to container width
+        const containerWidth = await page.locator('#animation-progress-container').evaluate(el => el.offsetWidth);
+        const initialWidth = await fill.evaluate(el => el.offsetWidth);
+        expect(initialWidth).toBeCloseTo(containerWidth, 0); // Should be at 100%
 
         // Start playing
         await page.locator('#btn-play-pause').click();

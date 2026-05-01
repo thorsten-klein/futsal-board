@@ -8,6 +8,7 @@ const Animations = {
         this.setupPathContextMenu();
         this.setupGhostDragging();
         this.setupPathSelection();
+        this.setupAnimationOverlayDragging();
         this.contextMenuPath = null; // Track which path's context menu is open
         this.draggedGhost = null; // Track dragged ghost
         this.rotatingGhost = null; // Track rotating ghost
@@ -26,14 +27,21 @@ const Animations = {
         // Sync breadcrumb checkbox with persisted state
         document.getElementById('show-board-breadcrumb').checked = AppState.showBoardBreadcrumb;
 
-        // Set initial speed display
-        document.getElementById('speed-value').textContent = (AppState.animationDuration / 1000).toFixed(1) + 's';
-
         // Set initial FPS display
         document.getElementById('fps-value').textContent = AppState.animationFPS;
 
         // Set initial speed dropdown value
-        document.getElementById('animation-speed-dropdown').value = AppState.animationDuration;
+        const speedDropdown = document.getElementById('animation-speed-dropdown');
+        const durationValue = String(AppState.animationDuration);
+        // Check if the value exists in the dropdown options
+        const hasMatchingOption = Array.from(speedDropdown.options).some(opt => opt.value === durationValue);
+        if (hasMatchingOption) {
+            speedDropdown.value = durationValue;
+        } else {
+            // Fallback to default 2000ms if no match
+            speedDropdown.value = '2000';
+            AppState.animationDuration = 2000;
+        }
 
         // Set initial frame speed dropdown value
         this.updateFrameSpeedUI();
@@ -57,30 +65,6 @@ const Animations = {
 
         // Setup animation quality menu
         this.setupAnimationMenu();
-
-        // Speed (duration) buttons
-        document.querySelectorAll('.speed-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.preventDefault();
-                const action = btn.dataset.action;
-                let currentDuration = AppState.animationDuration;
-
-                if (action === 'increase') {
-                    currentDuration = Math.min(5000, currentDuration + 200);
-                } else {
-                    currentDuration = Math.max(200, currentDuration - 200);
-                }
-
-                AppState.animationDuration = currentDuration;
-                document.getElementById('speed-value').textContent = (currentDuration / 1000).toFixed(1) + 's';
-
-                // Update dropdown if the value exists in it
-                const dropdown = document.getElementById('animation-speed-dropdown');
-                if (dropdown.querySelector(`option[value="${currentDuration}"]`)) {
-                    dropdown.value = currentDuration;
-                }
-            });
-        });
 
         // FPS buttons
         const fpsOptions = [5, 10, 15, 20, 25, 30];
@@ -109,7 +93,6 @@ const Animations = {
         document.getElementById('animation-speed-dropdown').addEventListener('change', (e) => {
             const newDuration = parseInt(e.target.value);
             AppState.animationDuration = newDuration;
-            document.getElementById('speed-value').textContent = (newDuration / 1000).toFixed(1) + 's';
         });
 
         // Frame speed dropdown (board-specific playback speed)
@@ -420,6 +403,150 @@ const Animations = {
                 if (shouldGoToFrameEnd(target)) this.goToFrameEnd();
             }, { passive: true });
         }
+    },
+
+    // Setup dragging for the animation player overlay
+    setupAnimationOverlayDragging() {
+        const overlay = document.getElementById('animation-player-overlay');
+        if (!overlay) return;
+
+        let isDragging = false;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+
+        // Load saved position from localStorage
+        const savedPosition = localStorage.getItem('animationOverlayPosition');
+        if (savedPosition) {
+            try {
+                const { x, y } = JSON.parse(savedPosition);
+                overlay.style.left = `${x}px`;
+                overlay.style.top = `${y}px`;
+                overlay.style.transform = 'none';
+            } catch (e) {
+                console.error('Failed to load overlay position:', e);
+            }
+        }
+
+        // Helper to check if target is draggable area (drag handle only)
+        const isDraggableArea = (target) => {
+            // Only allow drag on the drag handle
+            if (target.classList && target.classList.contains('drag-handle')) return true;
+            // Also check if parent is drag handle (for the SVG inside)
+            if (target.parentElement && target.parentElement.classList.contains('drag-handle')) return true;
+            return false;
+        };
+
+        // Mouse events
+        overlay.addEventListener('mousedown', (e) => {
+            // Only start drag if clicking on draggable area
+            if (!isDraggableArea(e.target)) {
+                return;
+            }
+
+            isDragging = true;
+            const rect = overlay.getBoundingClientRect();
+            dragOffsetX = e.clientX - rect.left;
+            dragOffsetY = e.clientY - rect.top;
+            overlay.style.cursor = 'grabbing';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+
+            const boardContainer = document.querySelector('.board-container');
+            const containerRect = boardContainer.getBoundingClientRect();
+
+            let x = e.clientX - containerRect.left - dragOffsetX;
+            let y = e.clientY - containerRect.top - dragOffsetY;
+
+            // Keep overlay within board bounds
+            const overlayRect = overlay.getBoundingClientRect();
+            const maxX = containerRect.width - overlayRect.width;
+            const maxY = containerRect.height - overlayRect.height;
+
+            x = Math.max(0, Math.min(x, maxX));
+            y = Math.max(0, Math.min(y, maxY));
+
+            overlay.style.left = `${x}px`;
+            overlay.style.top = `${y}px`;
+            overlay.style.transform = 'none';
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+                overlay.style.cursor = '';
+
+                // Save position to localStorage
+                const rect = overlay.getBoundingClientRect();
+                const boardContainer = document.querySelector('.board-container');
+                const containerRect = boardContainer.getBoundingClientRect();
+                const position = {
+                    x: rect.left - containerRect.left,
+                    y: rect.top - containerRect.top
+                };
+                localStorage.setItem('animationOverlayPosition', JSON.stringify(position));
+            }
+        });
+
+        // Touch events
+        overlay.addEventListener('touchstart', (e) => {
+            // Only start drag if touching draggable area
+            if (!isDraggableArea(e.target)) {
+                return;
+            }
+
+            if (e.touches.length !== 1) return;
+
+            isDragging = true;
+            const touch = e.touches[0];
+            const rect = overlay.getBoundingClientRect();
+            dragOffsetX = touch.clientX - rect.left;
+            dragOffsetY = touch.clientY - rect.top;
+            e.preventDefault();
+        }, { passive: false });
+
+        document.addEventListener('touchmove', (e) => {
+            if (!isDragging || e.touches.length !== 1) return;
+
+            const touch = e.touches[0];
+            const boardContainer = document.querySelector('.board-container');
+            const containerRect = boardContainer.getBoundingClientRect();
+
+            let x = touch.clientX - containerRect.left - dragOffsetX;
+            let y = touch.clientY - containerRect.top - dragOffsetY;
+
+            // Keep overlay within board bounds
+            const overlayRect = overlay.getBoundingClientRect();
+            const maxX = containerRect.width - overlayRect.width;
+            const maxY = containerRect.height - overlayRect.height;
+
+            x = Math.max(0, Math.min(x, maxX));
+            y = Math.max(0, Math.min(y, maxY));
+
+            overlay.style.left = `${x}px`;
+            overlay.style.top = `${y}px`;
+            overlay.style.transform = 'none';
+
+            e.preventDefault();
+        }, { passive: false });
+
+        document.addEventListener('touchend', () => {
+            if (isDragging) {
+                isDragging = false;
+
+                // Save position to localStorage
+                const rect = overlay.getBoundingClientRect();
+                const boardContainer = document.querySelector('.board-container');
+                const containerRect = boardContainer.getBoundingClientRect();
+                const position = {
+                    x: rect.left - containerRect.left,
+                    y: rect.top - containerRect.top
+                };
+                localStorage.setItem('animationOverlayPosition', JSON.stringify(position));
+            }
+        });
     },
 
     // Build animation chain from board ancestry
@@ -1626,6 +1753,18 @@ const Animations = {
         const progressEl = document.getElementById('recording-progress');
         const progressFill = document.getElementById('recording-progress-fill');
         const progressLabel = document.getElementById('recording-progress-label');
+        const abortBtn = document.getElementById('recording-abort-btn');
+
+        // Abort flag and handler
+        let abortRequested = false;
+        const handleAbort = () => {
+            abortRequested = true;
+            if (progressLabel) progressLabel.textContent = 'Canceling...';
+        };
+
+        if (abortBtn) {
+            abortBtn.addEventListener('click', handleAbort);
+        }
 
         const updateProgress = (frame, total) => {
             if (progressFill) progressFill.style.width = `${Math.round((frame / total) * 100)}%`;
@@ -1634,6 +1773,7 @@ const Animations = {
 
         const hideProgress = () => {
             if (progressEl) progressEl.classList.add('hidden');
+            if (abortBtn) abortBtn.removeEventListener('click', handleAbort);
         };
 
         try {
@@ -1734,7 +1874,10 @@ const Animations = {
 
                 const boardName = AppState.boards.find(b => b.id === AppState.currentBoardId)?.name || 'Board';
                 const workbookName = AppState.workbookName || 'Futsal';
-                const timestamp = new Date().toISOString().slice(0, 10);
+                const now = new Date();
+                const date = now.toISOString().slice(0, 10).replace(/-/g, '');
+                const time = now.toISOString().slice(11, 19).replace(/:/g, '');
+                const timestamp = `${date}-${time}`;
                 a.download = `${workbookName}-${boardName}-animation-${timestamp}.webm`;
 
                 document.body.appendChild(a);
@@ -1744,11 +1887,21 @@ const Animations = {
 
                 hideProgress();
 
+                // Restore UI overlays
+                if (frameSpeedControl && originalFrameSpeedDisplay !== null) {
+                    frameSpeedControl.style.display = originalFrameSpeedDisplay;
+                }
+                if (animationOverlay && originalAnimationOverlayDisplay !== null) {
+                    animationOverlay.style.display = originalAnimationOverlayDisplay;
+                }
+
                 if (headerDownloadBtn) {
                     headerDownloadBtn.innerHTML = originalHeaderBtnHTML;
                     headerDownloadBtn.disabled = false;
                 }
 
+                // Reset animation state
+                AppState.isAnimating = false;
                 this.isRecording = false;
 
                 // Show success toast with resolution
@@ -1806,6 +1959,15 @@ const Animations = {
                 Players.render();
             }
 
+            // Hide UI overlays that shouldn't be captured in the video
+            const frameSpeedControl = document.getElementById('frame-speed-control');
+            const animationOverlay = document.getElementById('animation-player-overlay');
+            const originalFrameSpeedDisplay = frameSpeedControl ? frameSpeedControl.style.display : null;
+            const originalAnimationOverlayDisplay = animationOverlay ? animationOverlay.style.display : null;
+
+            if (frameSpeedControl) frameSpeedControl.style.display = 'none';
+            if (animationOverlay) animationOverlay.style.display = 'none';
+
             // Show recording progress bar
             if (progressEl) progressEl.classList.remove('hidden');
 
@@ -1813,6 +1975,11 @@ const Animations = {
             // This decouples capture speed from video playback FPS.
             const frameSnapshots = [];
             for (let i = 0; i < totalFrames; i++) {
+                // Check for abort
+                if (abortRequested) {
+                    throw new Error('Export canceled by user');
+                }
+
                 updateProgress(i + 1, totalFrames);
 
                 const totalProgress = totalFrames > 1 ? i / (totalFrames - 1) : 1;
@@ -1838,6 +2005,13 @@ const Animations = {
             mediaRecorder.start();
 
             for (const snapshot of frameSnapshots) {
+                // Check for abort
+                if (abortRequested) {
+                    mediaRecorder.stop();
+                    this.isRecording = false;
+                    throw new Error('Export canceled by user');
+                }
+
                 ctx.putImageData(snapshot, 0, 0);
                 await new Promise(r => setTimeout(r, frameTime));
             }
@@ -1850,10 +2024,30 @@ const Animations = {
 
         } catch (error) {
             console.error('Animation recording failed:', error);
-            Utils.showMessage('Failed to record animation: ' + error.message, 'Recording Error');
+
+            // Show different message for user cancellation vs actual error
+            if (error.message === 'Export canceled by user') {
+                Utils.showToast('Export canceled', 'error');
+            } else {
+                Utils.showMessage('Failed to record animation: ' + error.message, 'Recording Error');
+            }
 
             // Cleanup on error
             hideProgress();
+
+            // Reset animation state
+            AppState.isAnimating = false;
+            this.isRecording = false;
+
+            // Restore UI overlays
+            const frameSpeedControl = document.getElementById('frame-speed-control');
+            const animationOverlay = document.getElementById('animation-player-overlay');
+            if (frameSpeedControl && typeof originalFrameSpeedDisplay !== 'undefined' && originalFrameSpeedDisplay !== null) {
+                frameSpeedControl.style.display = originalFrameSpeedDisplay;
+            }
+            if (animationOverlay && typeof originalAnimationOverlayDisplay !== 'undefined' && originalAnimationOverlayDisplay !== null) {
+                animationOverlay.style.display = originalAnimationOverlayDisplay;
+            }
 
             const headerDownloadBtn = document.getElementById('btn-header-download-animation');
             if (headerDownloadBtn) {
@@ -1866,8 +2060,6 @@ const Animations = {
                 `;
                 headerDownloadBtn.disabled = false;
             }
-
-            this.isRecording = false;
         }
     },
 
@@ -2824,8 +3016,11 @@ const Animations = {
                         renderIntermediates = allIntermediates[clampedPhase + 1] || [];
                         segmentProgress = progressInPhase;
 
-                        labels = [String(clampedPhase + 1)];
-                        this.renderPath(pathsLayer, startPos, endPos, renderIntermediates, scaleX, scaleY, key, 'player', segmentProgress, labels, false);
+                        // Check if player actually moved in this phase
+                        if (Math.abs(startPos.x - endPos.x) >= 1 || Math.abs(startPos.y - endPos.y) >= 1) {
+                            labels = [String(clampedPhase + 1)];
+                            this.renderPath(pathsLayer, startPos, endPos, renderIntermediates, scaleX, scaleY, key, 'player', segmentProgress, labels, false);
+                        }
                     } else {
                         // Show completed and current phases (progressive animation)
                         for (let i = 0; i < chainPositions.length - 1; i++) {
@@ -2846,8 +3041,11 @@ const Animations = {
                                 continue;
                             }
 
-                            labels = [String(i + 1)];
-                            this.renderPath(pathsLayer, startPos, endPos, renderIntermediates, scaleX, scaleY, key, 'player', thisSegmentProgress, labels, false);
+                            // Check if player actually moved in this phase
+                            if (Math.abs(startPos.x - endPos.x) >= 1 || Math.abs(startPos.y - endPos.y) >= 1) {
+                                labels = [String(i + 1)];
+                                this.renderPath(pathsLayer, startPos, endPos, renderIntermediates, scaleX, scaleY, key, 'player', thisSegmentProgress, labels, false);
+                            }
                         }
                     }
                 } else {
@@ -2947,8 +3145,11 @@ const Animations = {
                         endPos = chainPositions[clampedIndex + 1];
                         renderIntermediates = []; // Balls don't have intermediates
 
-                        const labels = [String(clampedIndex + 1)];
-                        this.renderPath(pathsLayer, startPos, endPos, renderIntermediates, scaleX, scaleY, key, 'ball', segmentProgress, labels, false);
+                        // Check if ball actually moved in this segment
+                        if (Math.abs(startPos.x - endPos.x) >= 1 || Math.abs(startPos.y - endPos.y) >= 1) {
+                            const labels = [String(clampedIndex + 1)];
+                            this.renderPath(pathsLayer, startPos, endPos, renderIntermediates, scaleX, scaleY, key, 'ball', segmentProgress, labels, false);
+                        }
                     } else {
                         // Show completed and current segments (progressive animation)
                         const totalProgress = animationProgress * this.animationPhaseCount;
@@ -2973,8 +3174,11 @@ const Animations = {
                                 continue;
                             }
 
-                            const labels = [String(i + 1)];
-                            this.renderPath(pathsLayer, startPos, endPos, renderIntermediates, scaleX, scaleY, key, 'ball', thisSegmentProgress, labels, false);
+                            // Check if ball actually moved in this segment
+                            if (Math.abs(startPos.x - endPos.x) >= 1 || Math.abs(startPos.y - endPos.y) >= 1) {
+                                const labels = [String(i + 1)];
+                                this.renderPath(pathsLayer, startPos, endPos, renderIntermediates, scaleX, scaleY, key, 'ball', thisSegmentProgress, labels, false);
+                            }
                         }
                     }
                 } else {
@@ -3311,11 +3515,22 @@ const Animations = {
         const canvasRect = AppState.canvas.getBoundingClientRect();
         const displayScaleX = canvasRect.width / AppState.boardWidth;
 
-        // Calculate current phase if animating
+        // Calculate current phase if animating or paused mid-animation
         let currentPhase = null;
         let progressInPhase = null;
-        if (AppState.isAnimating && animationProgress !== null) {
-            const phaseProgress = animationProgress * this.animationPhaseCount;
+
+        // Determine which progress to use: explicit parameter, paused progress, or none
+        let effectiveProgress = null;
+        if (animationProgress !== null) {
+            // Always use explicit progress parameter if provided (regardless of animation state)
+            effectiveProgress = animationProgress;
+        } else if (!AppState.isAnimating && this.pausedProgress > 0 && this.pausedProgress < 1) {
+            // When paused mid-animation, use pausedProgress to filter ghosts
+            effectiveProgress = this.pausedProgress;
+        }
+
+        if (effectiveProgress !== null) {
+            const phaseProgress = effectiveProgress * this.animationPhaseCount;
             currentPhase = Math.min(Math.floor(phaseProgress), this.animationPhaseCount - 1);
             progressInPhase = currentPhase === this.animationPhaseCount - 1
                 ? Math.min(phaseProgress - currentPhase, 1)
@@ -3422,6 +3637,16 @@ const Animations = {
             }
         } else {
             // Show only current board's ghosts (immediate parent transition)
+            // The current board's pathIntermediates represent the transition TO the current board,
+            // which is the LAST phase of the animation sequence (animationPhaseCount - 1)
+            const lastPhase = this.animationPhaseCount - 1;
+
+            // During animation/paused, only show these intermediates if we're in the last phase
+            if (currentPhase !== null && currentPhase < lastPhase) {
+                // We haven't reached the last phase yet - don't show current board's ghosts
+                return;
+            }
+
             Object.keys(AppState.pathIntermediates).forEach(key => {
                 const intermediates = AppState.pathIntermediates[key];
                 if (!intermediates || intermediates.length === 0) return;
@@ -3436,10 +3661,10 @@ const Animations = {
                         const player = AppState.getPlayer(id);
                         if (!player) return;
 
-                        // During animation, only show ghosts that have been reached
-                        if (AppState.isAnimating && progressInPhase !== null) {
+                        // If we're in the last phase, check if this specific ghost has been reached
+                        if (currentPhase !== null && currentPhase === lastPhase && progressInPhase !== null) {
                             if (progressInPhase < (index + 1) / (intermediates.length + 1)) {
-                                // Ghost not reached yet
+                                // Ghost not reached yet within this phase
                                 return;
                             }
                         }
@@ -3510,7 +3735,7 @@ const Animations = {
         div.style.userSelect = 'none';
         div.style.pointerEvents = selectable ? 'all' : 'none';
         div.style.opacity = '0.5';
-        div.style.zIndex = '5';
+        div.style.zIndex = '6'; // Animation paths z-index
 
         // Add the ::before pseudo-element styling inline via a style element
         const beforeStyle = document.createElement('style');

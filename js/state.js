@@ -11,6 +11,9 @@ const AppState = {
     // Current tool
     currentTool: 'select',
 
+    // Debug mode (show yellow tolerance boxes)
+    debugMode: false,
+
     // Players
     players: [],
     selectedPlayer: null,

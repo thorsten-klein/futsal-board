@@ -60,9 +60,9 @@ test.describe('Shape Resizing', () => {
         const shapeId = await addAndSelectShape(page, 'ellipse');
 
         // Get initial dimensions
-        const initialHeight = await page.evaluate(() => {
+        const initialDimensions = await page.evaluate(() => {
             const shape = AppState.shapes.find(s => s.id === AppState.selectedShape);
-            return shape.height;
+            return { width: shape.width, height: shape.height };
         });
 
         // Find a resize handle
@@ -72,25 +72,27 @@ test.describe('Shape Resizing', () => {
         // Drag handle
         await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
         await page.mouse.down();
-        await page.mouse.move(handleBox.x, handleBox.y + 40);
+        await page.mouse.move(handleBox.x + 40, handleBox.y + 40);
         await page.mouse.up();
         await page.waitForTimeout(200);
 
-        // Verify size changed
-        const newHeight = await page.evaluate(() => {
+        // Verify size changed (either width or height should change)
+        const newDimensions = await page.evaluate(() => {
             const shape = AppState.shapes.find(s => s.id === AppState.selectedShape);
-            return shape.height;
+            return { width: shape.width, height: shape.height };
         });
 
-        expect(newHeight).not.toBe(initialHeight);
+        const dimensionsChanged = newDimensions.width !== initialDimensions.width ||
+                                 newDimensions.height !== initialDimensions.height;
+        expect(dimensionsChanged).toBe(true);
     });
 
-    test('rectangle has 8 resize handles when selected', async ({ page }) => {
+    test('rectangle has 4 resize handles when selected', async ({ page }) => {
         await addAndSelectShape(page, 'rectangle');
 
-        // Count resize handles (4 corners + 4 edges)
+        // Count resize handles (4 edges - no diagonal corners)
         const handleCount = await page.locator('.resize-handle').count();
-        expect(handleCount).toBe(8);
+        expect(handleCount).toBe(4);
     });
 });
 
@@ -148,7 +150,7 @@ test.describe('Shape Rotation', () => {
         await expect(page.locator('.rotation-handle')).toHaveCount(1);
 
         // Click elsewhere to deselect
-        await page.locator('#board-canvas').click({ position: { x: 10, y: 10 } });
+        await page.locator('.board-container').click({ position: { x: 10, y: 10 } });
         await page.waitForTimeout(100);
 
         // Rotation handle should be gone

@@ -182,31 +182,26 @@ const Plates = {
         this.layer.addEventListener('mousedown', (e) => {
             if (AppState.currentTool !== 'select') return;
 
-            // Find the plate ID by traversing up the DOM tree
+            // Find the plate ID by traversing up the DOM tree (also finds touch overlays)
             const plateId = Utils.findEntityId(e.target, this.layer, 'plate');
 
             if (plateId) {
+                // In touch mode, when overlays overlap, only handle if THIS overlay is on top
+                if (document.body.classList.contains('touch-mode')) {
+                    const topElement = document.elementFromPoint(e.clientX, e.clientY);
+                    // If the top element is a touch overlay but NOT a plate overlay, don't handle this click
+                    if (topElement && topElement.classList.contains('touch-overlay') && topElement.dataset.plate !== plateId) {
+                        return;
+                    }
+                }
+
                 const plate = AppState.getPlate(plateId);
                 if (plate) {
-                    // Check if plate is already selected
-                    if (AppState.selectedPlate && AppState.selectedPlate.id === plate.id) {
-                        // Don't allow dragging if locked or inherited
-                        if (plate.inherited) return;
+                    const isTouchMode = document.body.classList.contains('touch-mode');
+                    const isAlreadySelected = AppState.selectedPlate && AppState.selectedPlate.id === plate.id;
 
-                        // Already selected, prepare to drag
-                        AppState.draggedPlate = plate;
-                        AppState.updatePositionDisplay(plate.x, plate.y, plate, 'plate');
-
-                        const rect = AppState.canvas.getBoundingClientRect();
-                        const scaleX = AppState.boardWidth / rect.width;
-                        const scaleY = AppState.boardHeight / rect.height;
-
-                        AppState.dragOffset = {
-                            x: (e.clientX - rect.left) * scaleX - plate.x,
-                            y: (e.clientY - rect.top) * scaleY - plate.y
-                        };
-                    } else {
-                        // Not selected yet, just select it (allowed even if locked)
+                    // Select the plate if not already selected (allowed even if inherited)
+                    if (!isAlreadySelected) {
                         AppState.selectedPlate = plate;
                         AppState.selectedElement = null;
                         AppState.selectedPlayer = null;
@@ -216,29 +211,46 @@ const Plates = {
                         AppState.selectedGhost = null;
                         AppState.updatePositionDisplay(plate.x, plate.y, plate, 'plate');
 
-                        this.render(); // Re-render to show selection
-                        if (typeof Elements !== 'undefined') {
-                            Elements.render();
-                        }
-                        if (typeof Players !== 'undefined') {
-                            Players.render();
-                        }
-                        if (typeof Balls !== 'undefined') {
-                            Balls.render();
-                        }
-                        if (typeof Shapes !== 'undefined') {
-                            Shapes.render();
-                        }
-                        if (typeof Animations !== 'undefined') {
-                            Animations.renderParentPaths();
-                        }
+                        // Render in consistent order: shapes(25) first, then players/balls/plates/elements(30)
+                        // Last rendered is on top in DOM, so elements are on top when same z-index
+                        if (typeof Shapes !== 'undefined') Shapes.render();
+                        if (typeof Players !== 'undefined') Players.render();
+                        if (typeof Balls !== 'undefined') Balls.render();
+                        this.render();
+                        if (typeof Elements !== 'undefined') Elements.render();
+                        if (typeof Animations !== 'undefined') Animations.renderParentPaths();
+                    }
+
+                    // Start drag: immediately in touch mode, or on second tap in desktop
+                    // Inherited plates cannot be dragged
+                    if (!plate.inherited && (isTouchMode || isAlreadySelected)) {
+                        // Clear all other drag states to prevent cross-entity drag interference
+                        AppState.draggedElement = null;
+                        AppState.draggedShape = null;
+                        AppState.draggedPlayer = null;
+                        AppState.draggedBall = null;
+                        AppState.draggedPlate = plate;
+                        AppState.updatePositionDisplay(plate.x, plate.y, plate, 'plate');
+
+                        const rect = AppState.canvas.getBoundingClientRect();
+                        const scaleX = AppState.boardWidth / rect.width;
+                        const scaleY = AppState.boardHeight / rect.height;
+
+                        // Calculate drag offset to prevent jump when dragging from edge
+                        AppState.dragOffset = {
+                            x: (e.clientX - rect.left) * scaleX - plate.x,
+                            y: (e.clientY - rect.top)  * scaleY - plate.y
+                        };
                     }
 
                     e.preventDefault();
                     e.stopPropagation();
                 }
             } else {
-                // Clicked on empty space - deselect plate
+                // In touch mode: don't deselect if the click landed near the selected plate
+                if (AppState.selectedPlate && document.body.classList.contains('touch-mode') &&
+                    Utils.isNearElement(e.clientX, e.clientY, document.getElementById(AppState.selectedPlate.id), 30)) return;
+
                 if (AppState.selectedPlate) {
                     AppState.selectedPlate = null;
                     if (!AppState.selectedElement && !AppState.selectedPlayer && !AppState.selectedBall) {
@@ -261,6 +273,20 @@ const Plates = {
                 el.style.left = pxX + 'px';
                 el.style.top  = pxY + 'px';
                 el.style.transform = `translate(${-w/2}px, ${-h/2}px)`;
+
+                // Update touch overlay position during drag (touch mode)
+                if (document.body.classList.contains('touch-mode') && AppState.draggedPlate) {
+                    const overlay = document.querySelector(`.touch-overlay[data-plate="${AppState.draggedPlate.id}"]`);
+                    if (overlay) {
+                        overlay.style.left = pxX + 'px';
+                        overlay.style.top = pxY + 'px';
+                    }
+                }
+
+                // Update debug box position during drag
+                if (typeof Utils !== 'undefined' && AppState.draggedPlate) {
+                    Utils.updateDebugBox(AppState.draggedPlate.id, 'plate');
+                }
             }
         });
 
@@ -493,11 +519,13 @@ const Plates = {
         }
 
 
-        // Clear ALL plate SVGs from the DOM (not just tracked ones)
-        this.layer.querySelectorAll('.plate-svg').forEach(svg => {
-            svg.remove();
-        });
+        // Clear ALL plate SVGs and touch overlays from the DOM
+        this.layer.querySelectorAll('.plate-svg').forEach(svg => svg.remove());
+        this.layer.querySelectorAll('.touch-overlay[data-plate]').forEach(el => el.remove());
         this.plateSvgs = {};
+
+        // Remove debug boxes for plates
+        document.querySelectorAll('.debug-tolerance-box[data-debug-type="plate"]').forEach(box => box.remove());
 
         // Render each plate
         AppState.plates.forEach(plate => {
@@ -514,6 +542,24 @@ const Plates = {
         if (svg) {
             this.layer.appendChild(svg);
             this.plateSvgs[plate.id] = svg;
+
+            // DEBUG: Show bounding box for plate
+            if (typeof Utils !== 'undefined') {
+                Utils.showDebugBox(plate.id, 'plate', { type: 'circle' });
+            }
+
+            // Add a larger transparent hit area in touch mode
+            if (document.body.classList.contains('touch-mode')) {
+                const canvasRect = AppState.canvas.getBoundingClientRect();
+                const overlay = document.createElement('div');
+                overlay.className = 'touch-overlay';
+                overlay.style.left = (plate.x * (canvasRect.width / AppState.boardWidth)) + 'px';
+                overlay.style.top  = (plate.y * (canvasRect.height / AppState.boardHeight)) + 'px';
+                overlay.style.zIndex = '120'; // Plate overlay = visual z-index (20) + 100
+                overlay.style.pointerEvents = 'auto';
+                overlay.dataset.plate = plate.id;
+                this.layer.appendChild(overlay);
+            }
         } else {
             console.error('Failed to create SVG for plate:', plate);
         }
@@ -557,6 +603,7 @@ const Plates = {
         svg.style.cursor = 'default';
         svg.style.setProperty('cursor', 'default', 'important');
         svg.style.touchAction = 'none';
+        svg.style.zIndex = '20'; // Plates visual z-index (integer)
         svg.setAttribute('width', width);
         svg.setAttribute('height', height);
         svg.style.transform = `translate(${-width/2}px, ${-height/2}px)`;

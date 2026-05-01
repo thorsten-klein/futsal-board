@@ -41,11 +41,50 @@ const Drawings = {
 
     // Handle mouse down
     handleMouseDown(e) {
-        // Deselect element when clicking on board (if not on a drawing tool)
-        if (AppState.currentTool === 'select' && AppState.selectedElement) {
-            AppState.selectedElement = null;
-            if (typeof Elements !== 'undefined') {
-                Elements.render();
+        // Deselect entities when clicking on board (if not on a drawing tool)
+        // In touch mode, don't deselect if clicking near the selected entity (tolerance zone)
+        if (AppState.currentTool === 'select') {
+            // Check tolerance in touch mode before deselecting
+            if (document.body.classList.contains('touch-mode') && typeof Utils !== 'undefined') {
+                // Check if click is near selected element
+                if (AppState.selectedElement) {
+                    const selectedElementDom = document.getElementById(AppState.selectedElement.id);
+                    if (selectedElementDom && Utils.isNearElement(e.clientX, e.clientY, selectedElementDom, 30)) {
+                        return; // Don't deselect - within tolerance
+                    }
+                }
+
+                // Check if click is near selected player
+                if (AppState.selectedPlayer) {
+                    const selectedPlayerDom = document.getElementById(AppState.selectedPlayer.id);
+                    if (selectedPlayerDom && Utils.isNearElement(e.clientX, e.clientY, selectedPlayerDom, 30)) {
+                        return; // Don't deselect - within tolerance
+                    }
+                }
+
+                // Check if click is near selected ball
+                if (AppState.selectedBall) {
+                    const selectedBallDom = document.getElementById(AppState.selectedBall.id);
+                    if (selectedBallDom && Utils.isNearElement(e.clientX, e.clientY, selectedBallDom, 30)) {
+                        return; // Don't deselect - within tolerance
+                    }
+                }
+
+                // Check if click is near selected plate
+                if (AppState.selectedPlate) {
+                    const selectedPlateDom = document.getElementById(AppState.selectedPlate.id);
+                    if (selectedPlateDom && Utils.isNearElement(e.clientX, e.clientY, selectedPlateDom, 30)) {
+                        return; // Don't deselect - within tolerance
+                    }
+                }
+            }
+
+            // Deselect element
+            if (AppState.selectedElement) {
+                AppState.selectedElement = null;
+                if (typeof Elements !== 'undefined') {
+                    Elements.render();
+                }
             }
         }
 

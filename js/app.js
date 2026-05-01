@@ -243,6 +243,21 @@ const Utils = {
     },
 
     /**
+     * Returns true when (clientX, clientY) lands close enough to a DOM element's
+     * center that a "missed click" should not deselect the selected entity.
+     * extraTolerance adds pixels beyond the element's own half-width.
+     */
+    isNearElement(clientX, clientY, domEl, extraTolerance = 20) {
+        if (!domEl) return false;
+        const rect = domEl.getBoundingClientRect();
+        const dist = Math.sqrt(
+            Math.pow(clientX - (rect.left + rect.width  / 2), 2) +
+            Math.pow(clientY - (rect.top  + rect.height / 2), 2)
+        );
+        return dist <= Math.max(rect.width / 2, 10) + extraTolerance;
+    },
+
+    /**
      * Registers the document-level `mousemove` and `mouseup` listeners that
      * implement drag-to-move for a single entity type. Call this once from init().
      *
@@ -297,6 +312,220 @@ const Utils = {
                 AppState.hidePositionDisplay();
             }
         });
+    },
+
+    // DEBUG: Show bounding box for an element
+    showDebugBox(elementId, objectType = 'unknown', entityData = null) {
+        // Only show debug boxes if debug mode is enabled
+        if (!AppState.debugMode) return;
+
+        // Use double requestAnimationFrame to ensure element is fully rendered
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                const element = document.getElementById(elementId);
+                const boardContainer = document.querySelector('.board-container');
+
+                if (element && boardContainer) {
+                    const debugBox = document.createElement('div');
+                    debugBox.className = 'debug-tolerance-box';
+                    debugBox.dataset.debugType = objectType;
+                    debugBox.dataset.debugId = elementId;
+                    debugBox.style.position = 'absolute';
+                    debugBox.style.border = '3px solid yellow';
+                    debugBox.style.backgroundColor = 'rgba(255, 255, 0, 0.1)';
+                    debugBox.style.pointerEvents = 'none';
+                    debugBox.style.zIndex = '9999';
+                    debugBox.style.boxSizing = 'border-box';
+
+                    // Apply elliptical border for ellipse and circle shapes
+                    if (entityData && (entityData.type === 'ellipse' || entityData.type === 'circle')) {
+                        debugBox.style.borderRadius = '50%';
+                    }
+
+                    // For elements/shapes that can rotate, copy exact position and transform
+                    if (element.style.transform && (objectType === 'shape' || objectType === 'element')) {
+                        // element.style.left/top are relative to #board-area, but the debug box
+                        // is in .board-container — add the board-area offset to correct for this
+                        const boardArea = document.getElementById('board-area');
+                        const areaLeft = boardArea ? (parseFloat(boardArea.style.left) || 0) : 0;
+                        const areaTop = boardArea ? (parseFloat(boardArea.style.top) || 0) : 0;
+                        const elemLeft = parseFloat(element.style.left) || 0;
+                        const elemTop = parseFloat(element.style.top) || 0;
+
+                        // Get width and height - use style if available, otherwise getAttribute
+                        let width = parseFloat(element.style.width) || parseFloat(element.getAttribute('width'));
+                        let height = parseFloat(element.style.height) || parseFloat(element.getAttribute('height'));
+                        let left = areaLeft + elemLeft;
+                        let top = areaTop + elemTop;
+                        let transform = element.style.transform;
+                        let transformOrigin = element.style.transformOrigin;
+
+                        // For text shapes, use actual text bounding box without padding
+                        if (entityData && entityData.type === 'text') {
+                            const textElement = element.querySelector('text');
+                            if (textElement) {
+                                try {
+                                    const bbox = textElement.getBBox();
+
+                                    // Get fontSize-based viewBox dimensions
+                                    const fontSize = entityData.fontSize || 48;
+                                    const svgViewBoxWidth = fontSize * 3;
+                                    const svgViewBoxHeight = fontSize * 1.5;
+
+                                    // Scale factor from viewBox to canvas coordinates
+                                    const svgScaleX = width / svgViewBoxWidth;
+                                    const svgScaleY = height / svgViewBoxHeight;
+
+                                    const textWidth = bbox.width * svgScaleX;
+                                    const textHeight = bbox.height * svgScaleY;
+
+                                    const overlayWidth = textWidth;
+                                    const overlayHeight = textHeight * 0.8;
+
+                                    // Calculate Y offset - center the smaller box on the text
+                                    const textTopInViewBox = bbox.y;
+                                    const textCenterInViewBox = bbox.y + bbox.height / 2;
+                                    const textCenterInCanvas = textCenterInViewBox * svgScaleY;
+                                    const svgCenterInCanvas = height / 2;
+                                    const overlayYOffset = textCenterInCanvas - svgCenterInCanvas;
+
+                                    width = overlayWidth;
+                                    height = overlayHeight;
+                                    top = areaTop + elemTop + overlayYOffset;
+
+                                    // Adjust transform to account for new dimensions
+                                    const widthHalf = overlayWidth / 2;
+                                    const heightHalf = overlayHeight / 2;
+                                    const rotation = entityData.rotation || 0;
+                                    transform = `translate(${-widthHalf}px, ${-heightHalf}px) rotate(${rotation}deg)`;
+                                    transformOrigin = `${widthHalf}px ${heightHalf}px`;
+                                } catch (e) {
+                                    // Fallback to default if getBBox fails
+                                }
+                            }
+                        }
+
+                        debugBox.style.left = left + 'px';
+                        debugBox.style.top = top + 'px';
+                        debugBox.style.width = width + 'px';
+                        debugBox.style.height = height + 'px';
+                        debugBox.style.transform = transform;
+                        debugBox.style.transformOrigin = transformOrigin;
+                    } else {
+                        // For players, balls, plates, and non-rotated items, use bounding rect
+                        const rect = element.getBoundingClientRect();
+                        const containerRect = boardContainer.getBoundingClientRect();
+
+                        // Skip if element has zero size (not visible)
+                        if (rect.width === 0 || rect.height === 0) {
+                            return;
+                        }
+
+                        debugBox.style.left = (rect.left - containerRect.left) + 'px';
+                        debugBox.style.top = (rect.top - containerRect.top) + 'px';
+                        debugBox.style.width = rect.width + 'px';
+                        debugBox.style.height = rect.height + 'px';
+                    }
+
+                    boardContainer.appendChild(debugBox);
+                }
+            });
+        });
+    },
+
+    // DEBUG: Update debug box position for an element (called during drag)
+    updateDebugBox(elementId, objectType = 'unknown') {
+        // Only update if debug mode is enabled
+        if (!AppState.debugMode) return;
+
+        const element = document.getElementById(elementId);
+        const boardContainer = document.querySelector('.board-container');
+        const debugBox = boardContainer?.querySelector(`.debug-tolerance-box[data-debug-id="${elementId}"][data-debug-type="${objectType}"]`);
+
+        if (element && debugBox && boardContainer) {
+            // For shapes and elements that can rotate, copy exact positioning and transform
+            if (element.style.transform && (objectType === 'shape' || objectType === 'element')) {
+                // element.style.left/top are relative to #board-area, but the debug box
+                // is in .board-container — add the board-area offset to correct for this
+                const boardArea = document.getElementById('board-area');
+                const areaLeft = boardArea ? (parseFloat(boardArea.style.left) || 0) : 0;
+                const areaTop = boardArea ? (parseFloat(boardArea.style.top) || 0) : 0;
+                const elemLeft = parseFloat(element.style.left) || 0;
+                const elemTop = parseFloat(element.style.top) || 0;
+
+                // Get width and height - use style if available, otherwise getAttribute
+                let width = parseFloat(element.style.width) || parseFloat(element.getAttribute('width'));
+                let height = parseFloat(element.style.height) || parseFloat(element.getAttribute('height'));
+                let left = areaLeft + elemLeft;
+                let top = areaTop + elemTop;
+                let transform = element.style.transform;
+                let transformOrigin = element.style.transformOrigin;
+
+                // For text shapes, use actual text bounding box without padding
+                if (objectType === 'shape') {
+                    const shape = AppState.getShape(elementId);
+                    if (shape && shape.type === 'text') {
+                        const textElement = element.querySelector('text');
+                        if (textElement) {
+                            try {
+                                const bbox = textElement.getBBox();
+
+                                // Get fontSize-based viewBox dimensions
+                                const fontSize = shape.fontSize || 48;
+                                const svgViewBoxWidth = fontSize * 3;
+                                const svgViewBoxHeight = fontSize * 1.5;
+
+                                // Scale factor from viewBox to canvas coordinates
+                                const svgScaleX = width / svgViewBoxWidth;
+                                const svgScaleY = height / svgViewBoxHeight;
+
+                                const textWidth = bbox.width * svgScaleX;
+                                const textHeight = bbox.height * svgScaleY;
+
+                                const overlayWidth = textWidth;
+                                const overlayHeight = textHeight * 0.8;
+
+                                // Calculate Y offset - center the smaller box on the text
+                                const textTopInViewBox = bbox.y;
+                                const textCenterInViewBox = bbox.y + bbox.height / 2;
+                                const textCenterInCanvas = textCenterInViewBox * svgScaleY;
+                                const svgCenterInCanvas = height / 2;
+                                const overlayYOffset = textCenterInCanvas - svgCenterInCanvas;
+
+                                width = overlayWidth;
+                                height = overlayHeight;
+                                top = areaTop + elemTop + overlayYOffset;
+
+                                // Adjust transform to account for new dimensions
+                                const widthHalf = overlayWidth / 2;
+                                const heightHalf = overlayHeight / 2;
+                                const rotation = shape.rotation || 0;
+                                transform = `translate(${-widthHalf}px, ${-heightHalf}px) rotate(${rotation}deg)`;
+                                transformOrigin = `${widthHalf}px ${heightHalf}px`;
+                            } catch (e) {
+                                // Fallback to default if getBBox fails
+                            }
+                        }
+                    }
+                }
+
+                debugBox.style.left = left + 'px';
+                debugBox.style.top = top + 'px';
+                debugBox.style.width = width + 'px';
+                debugBox.style.height = height + 'px';
+                debugBox.style.transform = transform;
+                debugBox.style.transformOrigin = transformOrigin;
+            } else {
+                // For players, balls, plates, and non-rotated items, use bounding rect
+                const rect = element.getBoundingClientRect();
+                const containerRect = boardContainer.getBoundingClientRect();
+
+                debugBox.style.left = (rect.left - containerRect.left) + 'px';
+                debugBox.style.top = (rect.top - containerRect.top) + 'px';
+                debugBox.style.width = rect.width + 'px';
+                debugBox.style.height = rect.height + 'px';
+            }
+        }
     }
 };
 
@@ -329,6 +558,9 @@ const App = {
         this.setupSidebarToggle();
         this.setupSidebarResize();
         this.setupTools();
+        this.setupTouchMode();
+        this.setupDebugMode();
+        this.setupTouchBordersToggle();
         this.setupUndoRedo();
         this.setupPositionDisplay();
         this.setupCopyPaste();
@@ -784,6 +1016,117 @@ const App = {
         AppState.currentTool = 'select';
     },
 
+    // Detect if device is touch-capable
+    isTouchDevice() {
+        // Check multiple indicators for better detection
+        return (
+            ('ontouchstart' in window) ||
+            (navigator.maxTouchPoints > 0) ||
+            (navigator.msMaxTouchPoints > 0) ||
+            (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
+        );
+    },
+
+    // Setup touch mode toggle
+    setupTouchMode() {
+        const btn = document.getElementById('btn-touch-mode');
+        if (!btn) return;
+
+        // Check if user has explicitly set a preference
+        const savedPreference = localStorage.getItem('touchMode');
+
+        if (savedPreference !== null) {
+            // User has explicitly toggled touch mode before - respect their choice
+            if (savedPreference === 'true') {
+                document.body.classList.add('touch-mode');
+                btn.classList.add('touch-active');
+            }
+        } else {
+            // First time - auto-enable on touch devices
+            if (this.isTouchDevice()) {
+                document.body.classList.add('touch-mode');
+                btn.classList.add('touch-active');
+                localStorage.setItem('touchMode', 'true');
+            }
+        }
+
+        btn.addEventListener('click', () => {
+            const isActive = document.body.classList.toggle('touch-mode');
+            btn.classList.toggle('touch-active', isActive);
+            localStorage.setItem('touchMode', isActive);
+
+            // Re-render so touch overlays appear/disappear
+            Players.render();
+            Balls.render();
+            Plates.render();
+            Elements.render();
+            Shapes.render();
+        });
+    },
+
+    setupDebugMode() {
+        const checkbox = document.getElementById('show-svg-borders');
+        if (!checkbox) return;
+
+        // Restore saved preference
+        if (localStorage.getItem('debugMode') === 'true') {
+            AppState.debugMode = true;
+            checkbox.checked = true;
+
+            // Re-render to show debug boxes on page load
+            setTimeout(() => {
+                if (typeof Players !== 'undefined') Players.render();
+                if (typeof Balls !== 'undefined') Balls.render();
+                if (typeof Plates !== 'undefined') Plates.render();
+                if (typeof Elements !== 'undefined') Elements.render();
+                if (typeof Shapes !== 'undefined') Shapes.render();
+            }, 100);
+        }
+
+        checkbox.addEventListener('change', () => {
+            const isEnabled = checkbox.checked;
+            AppState.debugMode = isEnabled;
+            localStorage.setItem('debugMode', isEnabled);
+
+            if (isEnabled) {
+                // Re-render to show debug boxes
+                if (typeof Players !== 'undefined') Players.render();
+                if (typeof Balls !== 'undefined') Balls.render();
+                if (typeof Plates !== 'undefined') Plates.render();
+                if (typeof Elements !== 'undefined') Elements.render();
+                if (typeof Shapes !== 'undefined') Shapes.render();
+            } else {
+                // Hide all debug boxes
+                const boardContainer = document.querySelector('.board-container');
+                if (boardContainer) {
+                    boardContainer.querySelectorAll('.debug-tolerance-box').forEach(box => box.remove());
+                }
+            }
+        });
+    },
+
+    setupTouchBordersToggle() {
+        const checkbox = document.getElementById('show-touch-borders');
+        if (!checkbox) return;
+
+        // Restore saved preference
+        if (localStorage.getItem('showTouchBorders') === 'true') {
+            document.body.classList.add('show-touch-borders');
+            checkbox.checked = true;
+        }
+
+        checkbox.addEventListener('change', () => {
+            const isEnabled = checkbox.checked;
+            document.body.classList.toggle('show-touch-borders', isEnabled);
+            localStorage.setItem('showTouchBorders', isEnabled);
+
+            // Re-render shapes to ensure borders appear/disappear
+            if (typeof Shapes !== 'undefined') {
+                Shapes.render();
+            }
+        });
+    },
+
     // Setup undo/redo
     setupUndoRedo() {
         const undoBtn = document.getElementById('btn-undo');
@@ -1059,8 +1402,7 @@ const App = {
                             await screen.orientation.lock('landscape');
                         } catch (orientationErr) {
                             // Orientation lock might fail on some browsers/devices
-                            // This is not critical, so we just log it
-                            console.log('Screen orientation lock not supported or failed:', orientationErr.message);
+                            // This is not critical, so we just ignore it
                         }
                     }
                 } catch (err) {

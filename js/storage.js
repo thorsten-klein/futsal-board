@@ -770,7 +770,6 @@ const Storage = {
             } catch (err) {
                 if (err.name === 'NotAllowedError') {
                     // Permission denied, fall through to save dialog
-                    console.log('Permission denied, prompting for new file');
                 } else {
                     console.error('Save error:', err);
                     Utils.showMessage('Failed to save: ' + err.message, 'Save Error');

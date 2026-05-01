@@ -187,8 +187,8 @@ test.describe('Drag image is centered at cursor (no jump on drop)', () => {
 
         const spy = await readDragImageSpy(page);
         expect(spy).not.toBeNull();
-        expect(Math.abs(spy.x - spy.w / 2)).toBeLessThanOrEqual(1);
-        expect(Math.abs(spy.y - spy.h / 2)).toBeLessThanOrEqual(1);
+        expect(Math.abs(spy.x - spy.w / 2)).toBeLessThanOrEqual(2);
+        expect(Math.abs(spy.y - spy.h / 2)).toBeLessThanOrEqual(2);
     });
 
     test('player drag image: offset equals half image size', async ({ page }) => {

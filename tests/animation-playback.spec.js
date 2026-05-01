@@ -156,70 +156,6 @@ test.describe('Animation Speed and FPS Controls', () => {
         await goto(page);
     });
 
-    test('speed increase button increases animation duration', async ({ page }) => {
-        await setupAnimation(page);
-
-        // Switch to settings tab to access speed controls
-        await page.locator('.sidebar-tab[data-tab="settings"]').click();
-        await page.waitForTimeout(100);
-
-        const initialDuration = await page.evaluate(() => AppState.animationDuration);
-
-        // Click increase button (use :not(.fps-btn) to exclude FPS buttons)
-        await page.locator('.speed-btn[data-action="increase"]:not(.fps-btn)').click();
-        await page.waitForTimeout(100);
-
-        const newDuration = await page.evaluate(() => AppState.animationDuration);
-        expect(newDuration).toBe(initialDuration + 200);
-
-        // Verify display updated
-        const displayText = await page.locator('#speed-value').textContent();
-        expect(displayText).toBe((newDuration / 1000).toFixed(1) + 's');
-    });
-
-    test('speed decrease button decreases animation duration', async ({ page }) => {
-        await setupAnimation(page);
-
-        // Switch to settings tab to access speed controls
-        await page.locator('.sidebar-tab[data-tab="settings"]').click();
-        await page.waitForTimeout(100);
-
-        const initialDuration = await page.evaluate(() => AppState.animationDuration);
-
-        // Click decrease button (use :not(.fps-btn) to exclude FPS buttons)
-        await page.locator('.speed-btn[data-action="decrease"]:not(.fps-btn)').click();
-        await page.waitForTimeout(100);
-
-        const newDuration = await page.evaluate(() => AppState.animationDuration);
-        expect(newDuration).toBe(initialDuration - 200);
-
-        // Verify display updated
-        const displayText = await page.locator('#speed-value').textContent();
-        expect(displayText).toBe((newDuration / 1000).toFixed(1) + 's');
-    });
-
-    test('speed cannot decrease below minimum', async ({ page }) => {
-        await setupAnimation(page);
-
-        // Switch to settings tab to access speed controls
-        await page.locator('.sidebar-tab[data-tab="settings"]').click();
-        await page.waitForTimeout(100);
-
-        // Set to minimum first
-        await page.evaluate(() => {
-            AppState.animationDuration = 200;
-            document.getElementById('speed-value').textContent = '0.2s';
-        });
-
-        // Try to decrease (use :not(.fps-btn) to exclude FPS buttons)
-        await page.locator('.speed-btn[data-action="decrease"]:not(.fps-btn)').click();
-        await page.waitForTimeout(100);
-
-        // Should still be at minimum
-        const duration = await page.evaluate(() => AppState.animationDuration);
-        expect(duration).toBe(200);
-    });
-
     test('FPS increase button increases frame rate', async ({ page }) => {
         await setupAnimation(page);
 
@@ -272,9 +208,9 @@ test.describe('Animation Speed and FPS Controls', () => {
         const duration = await page.evaluate(() => AppState.animationDuration);
         expect(duration).toBe(1000);
 
-        // Verify display updated
-        const displayText = await page.locator('#speed-value').textContent();
-        expect(displayText).toBe('1.0s');
+        // Verify dropdown value is updated
+        const dropdownValue = await page.locator('#animation-speed-dropdown').inputValue();
+        expect(dropdownValue).toBe('1000');
     });
 });
 

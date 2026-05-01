@@ -161,8 +161,8 @@ const Balls = {
         const canvasRect = AppState.canvas.getBoundingClientRect();
         const scaleX = canvasRect.width / AppState.boardWidth;
 
-        // Ball is 80cm (20cm * 4)
-        const size = Math.max(20 * scaleX * 4, 30); // minimum 30px for visibility
+        // Ball is 60cm
+        const size = Math.max(60 * scaleX, 30); // minimum 30px for visibility
 
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('width', size);
@@ -180,28 +180,26 @@ const Balls = {
         this.layer.addEventListener('mousedown', (e) => {
             if (AppState.currentTool !== 'select') return;
 
-            // Find the ball ID by traversing up the DOM tree
+            // Find the ball ID by traversing up the DOM tree (also finds touch overlays)
             const ballId = Utils.findEntityId(e.target, this.layer, 'ball');
 
             if (ballId) {
+                // In touch mode, when overlays overlap, only handle if THIS overlay is on top
+                if (document.body.classList.contains('touch-mode')) {
+                    const topElement = document.elementFromPoint(e.clientX, e.clientY);
+                    // If the top element is a touch overlay but NOT this ball's overlay, don't handle this click
+                    if (topElement && topElement.classList.contains('touch-overlay') && topElement.dataset.ball !== ballId) {
+                        return;
+                    }
+                }
+
                 const ball = AppState.getBall(ballId);
                 if (ball) {
-                    // Check if ball is already selected
-                    if (AppState.selectedBall && AppState.selectedBall.id === ball.id) {
-                        // Already selected, prepare to drag
-                        AppState.draggedBall = ball;
-                        AppState.updatePositionDisplay(ball.x, ball.y, ball, 'ball');
+                    const isTouchMode = document.body.classList.contains('touch-mode');
+                    const isAlreadySelected = AppState.selectedBall && AppState.selectedBall.id === ball.id;
 
-                        const rect = AppState.canvas.getBoundingClientRect();
-                        const scaleX = AppState.boardWidth / rect.width;
-                        const scaleY = AppState.boardHeight / rect.height;
-
-                        AppState.dragOffset = {
-                            x: (e.clientX - rect.left) * scaleX - ball.x,
-                            y: (e.clientY - rect.top) * scaleY - ball.y
-                        };
-                    } else {
-                        // Not selected yet, just select it
+                    // Select the ball if not already selected
+                    if (!isAlreadySelected) {
                         AppState.selectedBall = ball;
                         AppState.selectedElement = null;
                         AppState.selectedPlayer = null;
@@ -211,36 +209,49 @@ const Balls = {
                         AppState.selectedGhost = null;
                         AppState.updatePositionDisplay(ball.x, ball.y, ball, 'ball');
 
-                        // Hide path context menu when selecting a ball
                         const pathMenu = document.getElementById('path-context-menu');
-                        if (pathMenu) {
-                            pathMenu.classList.add('hidden');
-                        }
+                        if (pathMenu) pathMenu.classList.add('hidden');
 
-                        // Re-render to show selection
+                        // Render in consistent order: shapes(25) first, then players/balls/plates/elements(30)
+                        // Last rendered is on top in DOM, so elements are on top when same z-index
+                        if (typeof Shapes !== 'undefined') Shapes.render();
+                        if (typeof Players !== 'undefined') Players.render();
                         this.render();
-                        if (typeof Elements !== 'undefined') {
-                            Elements.render();
-                        }
-                        if (typeof Players !== 'undefined') {
-                            Players.render();
-                        }
-                        if (typeof Plates !== 'undefined') {
-                            Plates.render();
-                        }
-                        if (typeof Shapes !== 'undefined') {
-                            Shapes.render();
-                        }
-                        if (typeof Animations !== 'undefined') {
-                            Animations.renderParentPaths();
-                        }
+                        if (typeof Plates !== 'undefined') Plates.render();
+                        if (typeof Elements !== 'undefined') Elements.render();
+                        if (typeof Animations !== 'undefined') Animations.renderParentPaths();
+                    }
+
+                    // In touch mode: immediately start drag (skip the two-tap workflow)
+                    // In desktop mode: start drag only on second tap (already selected)
+                    if (isTouchMode || isAlreadySelected) {
+                        // Clear all other drag states to prevent cross-entity drag interference
+                        AppState.draggedElement = null;
+                        AppState.draggedShape = null;
+                        AppState.draggedPlayer = null;
+                        AppState.draggedPlate = null;
+                        AppState.draggedBall = ball;
+                        AppState.updatePositionDisplay(ball.x, ball.y, ball, 'ball');
+
+                        const rect = AppState.canvas.getBoundingClientRect();
+                        const scaleX = AppState.boardWidth / rect.width;
+                        const scaleY = AppState.boardHeight / rect.height;
+
+                        // Calculate drag offset to prevent jump when dragging from edge
+                        AppState.dragOffset = {
+                            x: (e.clientX - rect.left) * scaleX - ball.x,
+                            y: (e.clientY - rect.top)  * scaleY - ball.y
+                        };
                     }
 
                     e.preventDefault();
                     e.stopPropagation();
                 }
             } else {
-                // Clicked on empty space - deselect ball
+                // In touch mode: don't deselect if the click landed near the selected ball
+                if (AppState.selectedBall && document.body.classList.contains('touch-mode') &&
+                    Utils.isNearElement(e.clientX, e.clientY, document.getElementById(AppState.selectedBall.id), 30)) return;
+
                 if (AppState.selectedBall) {
                     AppState.selectedBall = null;
                     if (!AppState.selectedElement && !AppState.selectedPlayer && !AppState.selectedPlate) {
@@ -263,6 +274,20 @@ const Balls = {
                 el.style.left = pxX + 'px';
                 el.style.top  = pxY + 'px';
                 el.style.transform = `translate(${-w/2}px, ${-h/2}px)`;
+
+                // Update touch overlay position during drag (touch mode)
+                if (document.body.classList.contains('touch-mode') && AppState.draggedBall) {
+                    const overlay = document.querySelector(`.touch-overlay[data-ball="${AppState.draggedBall.id}"]`);
+                    if (overlay) {
+                        overlay.style.left = pxX + 'px';
+                        overlay.style.top = pxY + 'px';
+                    }
+                }
+
+                // Update debug box position during drag
+                if (typeof Utils !== 'undefined' && AppState.draggedBall) {
+                    Utils.updateDebugBox(AppState.draggedBall.id, 'ball');
+                }
             },
             afterMove() {
                 if (typeof Animations !== 'undefined') Animations.renderParentPaths();
@@ -583,11 +608,13 @@ const Balls = {
         }
 
 
-        // Clear ALL ball SVGs from the DOM (not just tracked ones)
-        this.layer.querySelectorAll('.ball-svg').forEach(svg => {
-            svg.remove();
-        });
+        // Clear ALL ball SVGs and touch overlays from the DOM
+        this.layer.querySelectorAll('.ball-svg').forEach(svg => svg.remove());
+        this.layer.querySelectorAll('.touch-overlay[data-ball]').forEach(el => el.remove());
         this.ballSvgs = {};
+
+        // Remove debug boxes for balls
+        document.querySelectorAll('.debug-tolerance-box[data-debug-type="ball"]').forEach(box => box.remove());
 
         // Render each ball
         AppState.balls.forEach(ball => {
@@ -623,6 +650,24 @@ const Balls = {
         if (svg) {
             this.layer.appendChild(svg);
             this.ballSvgs[ball.id] = svg;
+
+            // DEBUG: Show bounding box for ball
+            if (typeof Utils !== 'undefined') {
+                Utils.showDebugBox(ball.id, 'ball', { type: 'circle' });
+            }
+
+            // Add a larger transparent hit area in touch mode
+            if (document.body.classList.contains('touch-mode')) {
+                const canvasRect = AppState.canvas.getBoundingClientRect();
+                const overlay = document.createElement('div');
+                overlay.className = 'touch-overlay';
+                overlay.style.left = (ball.x * (canvasRect.width / AppState.boardWidth)) + 'px';
+                overlay.style.top  = (ball.y * (canvasRect.height / AppState.boardHeight)) + 'px';
+                overlay.style.zIndex = '140'; // Ball overlay = visual z-index (40) + 100
+                overlay.style.pointerEvents = 'auto';
+                overlay.dataset.ball = ball.id;
+                this.layer.appendChild(overlay);
+            }
         } else {
             console.error('Failed to create SVG for ball:', ball);
         }
@@ -640,7 +685,6 @@ const Balls = {
         const x = ball.x * scaleX;
         const y = ball.y * scaleY;
 
-        // Ball is 60cm diameter
         const width = 60 * scaleX;
         const height = 60 * scaleY;
 
@@ -661,6 +705,7 @@ const Balls = {
         svg.style.cursor = 'default';
         svg.style.setProperty('cursor', 'default', 'important');
         svg.style.touchAction = 'none';
+        svg.style.zIndex = '40'; // Balls visual z-index (integer)
         svg.setAttribute('width', width);
         svg.setAttribute('height', height);
         svg.style.transform = `translate(${-width/2}px, ${-height/2}px)`;

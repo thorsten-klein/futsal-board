@@ -165,8 +165,9 @@ const Shapes = {
             width = 400;
             height = 0;
         } else if (shapeType === 'text') {
-            width = 400;
-            height = 100;
+            const defaultFontSize = 48;
+            width = defaultFontSize * 3;   // 144
+            height = defaultFontSize * 1.5;  // 72
         }
 
         const screenWidth = width * scaleX;
@@ -192,35 +193,44 @@ const Shapes = {
             svg.setAttribute('height', 20 * scaleY);
 
             if (shapeType === 'line') {
-                content = `<line x1="${-width/2}" y1="0" x2="${width/2}" y2="0" stroke="${color}" stroke-width="2" fill="none" vector-effect="non-scaling-stroke"/>`;
+                content = `<rect x="${-width/2}" y="-10" width="${width}" height="20" fill="transparent" pointer-events="none"/><line x1="${-width/2}" y1="0" x2="${width/2}" y2="0" stroke="${color}" stroke-width="2" fill="none" vector-effect="non-scaling-stroke" pointer-events="none"/>`;
             } else {
                 content = `
+                    <rect x="${-width/2}" y="-10" width="${width}" height="20" fill="transparent" pointer-events="none"/>
                     <defs>
                         <marker id="arrowhead-preview" markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto">
                             <polygon points="0,0 10,5 0,10" fill="${color}"/>
                         </marker>
                     </defs>
-                    <line x1="${-width/2}" y1="0" x2="${width/2}" y2="0" stroke="${color}" stroke-width="2" fill="none" marker-end="url(#arrowhead-preview)" vector-effect="non-scaling-stroke"/>
+                    <line x1="${-width/2}" y1="0" x2="${width/2}" y2="0" stroke="${color}" stroke-width="2" fill="none" marker-end="url(#arrowhead-preview)" vector-effect="non-scaling-stroke" pointer-events="none"/>
                 `;
             }
         } else {
-            const maxDim = Math.max(screenWidth, screenHeight);
-            svg.setAttribute('viewBox', '0 0 100 100');
-            svg.setAttribute('width', maxDim);
-            svg.setAttribute('height', maxDim);
+            // Use actual dimensions for viewBox to ensure consistent coordinates
+            const viewBoxWidth = width;
+            const viewBoxHeight = height;
+            svg.setAttribute('viewBox', `0 0 ${viewBoxWidth} ${viewBoxHeight}`);
+            svg.setAttribute('width', screenWidth);
+            svg.setAttribute('height', screenHeight);
 
             if (shapeType === 'rectangle') {
-                const rectWidth = (screenWidth / maxDim) * 100;
-                const rectHeight = (screenHeight / maxDim) * 100;
-                const rectX = (100 - rectWidth) / 2;
-                const rectY = (100 - rectHeight) / 2;
-                content = `<rect x="${rectX}" y="${rectY}" width="${rectWidth}" height="${rectHeight}" fill="${fillColor}" stroke="${color}" stroke-width="3" vector-effect="non-scaling-stroke"/>`;
+                const margin = 5;
+                const rectX = margin;
+                const rectY = margin;
+                const rectWidth = width - (margin * 2);
+                const rectHeight = height - (margin * 2);
+                content = `<rect x="${rectX}" y="${rectY}" width="${rectWidth}" height="${rectHeight}" fill="${fillColor}" stroke="${color}" stroke-width="3" vector-effect="non-scaling-stroke" pointer-events="none"/>`;
             } else if (shapeType === 'ellipse') {
-                const ellipseRx = (screenWidth / maxDim) * 45;
-                const ellipseRy = (screenHeight / maxDim) * 45;
-                content = `<ellipse cx="50" cy="50" rx="${ellipseRx}" ry="${ellipseRy}" fill="${fillColor}" stroke="${color}" stroke-width="3" vector-effect="non-scaling-stroke"/>`;
+                const margin = 5;
+                const cx = width / 2;
+                const cy = height / 2;
+                const rx = (width / 2) - margin;
+                const ry = (height / 2) - margin;
+                content = `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${fillColor}" stroke="${color}" stroke-width="3" vector-effect="non-scaling-stroke" pointer-events="none"/>`;
             } else if (shapeType === 'text') {
-                content = `<text x="50" y="55" text-anchor="middle" font-size="48" font-weight="bold" fill="${color}">Text</text>`;
+                const cx = width / 2;
+                const cy = height / 2;
+                content = `<text x="${cx}" y="${cy + 5}" text-anchor="middle" font-size="48" font-weight="bold" fill="${color}" pointer-events="none">Text</text>`;
             }
         }
 
@@ -252,8 +262,9 @@ const Shapes = {
             width = 400;
             height = 0; // Lines don't have height
         } else if (type === 'text') {
-            width = 400;
-            height = 100;
+            const defaultFontSize = 48;
+            width = defaultFontSize * 3;   // 144
+            height = defaultFontSize * 1.5;  // 72
         }
 
         const shape = {
@@ -276,6 +287,9 @@ const Shapes = {
             shape.text = 'Text';
             shape.fontSize = 48;
             shape.color = 'black';
+            // Ensure width and height match the fontSize-based proportions
+            shape.width = shape.fontSize * 3;   // 144
+            shape.height = shape.fontSize * 1.5;  // 72
 
             AppState.shapes.push(shape);
             AppState.saveToLocalStorage();
@@ -332,16 +346,49 @@ const Shapes = {
         this.layer.addEventListener('mousedown', (e) => {
             if (AppState.currentTool !== 'select') return;
 
-            const shapeId = Utils.findEntityId(e.target, this.layer, 'shape');
+            let shapeId = Utils.findEntityId(e.target, this.layer, 'shape');
+
+            // If clicking on a shape-drag-handle (line/arrow transparent rect), get shapeId from parent SVG
+            if (!shapeId && e.target.classList && e.target.classList.contains('shape-drag-handle')) {
+                const parentSvg = e.target.parentElement;
+                if (parentSvg && parentSvg.dataset) {
+                    shapeId = parentSvg.dataset.shape;
+                }
+            }
 
             if (shapeId) {
+                // In touch mode, when overlays overlap, only handle if THIS overlay is on top
+                if (document.body.classList.contains('touch-mode')) {
+                    const topElement = document.elementFromPoint(e.clientX, e.clientY);
+                    // If the top element is a touch overlay but NOT this shape's overlay, don't handle this click
+                    if (topElement && topElement.classList.contains('touch-overlay') && topElement.dataset.shape !== shapeId) {
+                        return;
+                    }
+                }
+
                 const shape = AppState.getShape(shapeId);
                 if (shape) {
-                    // Check if shape is already selected
-                    if (AppState.selectedShape && AppState.selectedShape === shape.id) {
+                    // If shape was found via tolerance (not direct hit), stop event propagation
+                    // to prevent board.js from clearing the selection
+                    const isDirectHit = Utils.findEntityId(e.target, this.layer, 'shape');
+                    if (!isDirectHit) {
+                        e.stopPropagation();
+                    }
+
+                    const isTouchMode = document.body.classList.contains('touch-mode');
+                    const isAlreadySelected = AppState.selectedShape && AppState.selectedShape === shape.id;
+
+                    // In touch mode: immediately start drag on first click (skip two-click workflow)
+                    // In desktop mode: start drag only on second click (already selected)
+                    if (isTouchMode || isAlreadySelected) {
                         // Locked shapes cannot be dragged
                         if (shape.locked) return;
-                        // Already selected, prepare to drag
+                        // Clear all other drag states to prevent cross-entity drag interference
+                        AppState.draggedElement = null;
+                        AppState.draggedPlayer = null;
+                        AppState.draggedBall = null;
+                        AppState.draggedPlate = null;
+                        // Prepare to drag
                         AppState.draggedShape = shape;
                         AppState.updatePositionDisplay(shape.x, shape.y, shape, 'shape');
 
@@ -353,8 +400,10 @@ const Shapes = {
                             x: (e.clientX - rect.left) * scaleX - shape.x,
                             y: (e.clientY - rect.top) * scaleY - shape.y
                         };
-                    } else {
-                        // Not selected yet, just select it
+                    }
+
+                    // Select the shape (if not already selected)
+                    if (!isAlreadySelected) {
                         AppState.selectedShape = shape.id;
                         AppState.selectedElement = null;
                         AppState.selectedPlayer = null;
@@ -362,10 +411,9 @@ const Shapes = {
                         AppState.selectedPlate = null;
                         AppState.updatePositionDisplay(shape.x, shape.y, shape, 'shape');
 
+                        // Render in consistent order: shapes(25) first, then players/balls/plates/elements(30)
+                        // Last rendered is on top in DOM, so elements are on top when same z-index
                         this.render();
-                        if (typeof Elements !== 'undefined') {
-                            Elements.render();
-                        }
                         if (typeof Players !== 'undefined') {
                             Players.render();
                         }
@@ -374,6 +422,9 @@ const Shapes = {
                         }
                         if (typeof Plates !== 'undefined') {
                             Plates.render();
+                        }
+                        if (typeof Elements !== 'undefined') {
+                            Elements.render();
                         }
                     }
 
@@ -396,10 +447,25 @@ const Shapes = {
             dragKey: 'draggedShape',
             selectedKey: 'selectedShape',
             type: 'shape',
-            updateDOM(el, x, y, pxW, pxH) {
+            updateDOM: (el, x, y, pxW, pxH) => {
                 el.style.left = (x * (pxW / AppState.boardWidth))  + 'px';
                 el.style.top  = (y * (pxH / AppState.boardHeight)) + 'px';
                 // rotation transform is maintained from original render
+
+                // Update touch overlay position if it exists
+                if (document.body.classList.contains('touch-mode')) {
+                    const overlay = this.layer.querySelector(`.touch-overlay[data-shape="${el.dataset.shape}"]`);
+                    if (overlay) {
+                        const yOffset = parseFloat(overlay.dataset.yOffset || '0');
+                        overlay.style.left = (x * (pxW / AppState.boardWidth))  + 'px';
+                        overlay.style.top  = (y * (pxH / AppState.boardHeight) + yOffset) + 'px';
+                    }
+                }
+
+                // Update debug box position during drag
+                if (typeof Utils !== 'undefined') {
+                    Utils.updateDebugBox(el.dataset.shape, 'shape');
+                }
             },
             afterMove: () => {
                 if (!this.isRotating && !this.isResizing) this.updateHandlesPosition();
@@ -478,6 +544,9 @@ const Shapes = {
                 this.isResizing = false;
                 this.resizeDirection = null;
                 this.resizeCornerOffset = null;
+                // Clear text resize initial state
+                this.initialTextFontSize = null;
+                this.initialTextHandleDistance = null;
                 AppState.saveToLocalStorage();
             }
         });
@@ -520,10 +589,25 @@ const Shapes = {
                 shapeSvg.style.transform = `translate(${-width/2}px, ${-lineH/2}px) rotate(${shape.rotation}deg)`;
                 shapeSvg.style.transformOrigin = `${width/2}px ${lineH/2}px`;
             } else {
-                const maxDim = Math.max(width, height);
-                shapeSvg.style.transform = `translate(${-maxDim/2}px, ${-maxDim/2}px) rotate(${shape.rotation}deg)`;
-                shapeSvg.style.transformOrigin = `${maxDim/2}px ${maxDim/2}px`;
+                shapeSvg.style.transform = `translate(${-width/2}px, ${-height/2}px) rotate(${shape.rotation}deg)`;
+                shapeSvg.style.transformOrigin = `${width/2}px ${height/2}px`;
             }
+        }
+
+        // Update touch overlay rotation if it exists
+        if (document.body.classList.contains('touch-mode')) {
+            const overlay = this.layer.querySelector(`.touch-overlay[data-shape="${shape.id}"]`);
+            if (overlay) {
+                const overlayWidth = parseFloat(overlay.style.width);
+                const overlayHeight = parseFloat(overlay.style.height);
+                overlay.style.transform = `translate(${-overlayWidth/2}px, ${-overlayHeight/2}px) rotate(${shape.rotation}deg)`;
+                overlay.style.transformOrigin = `${overlayWidth/2}px ${overlayHeight/2}px`;
+            }
+        }
+
+        // Update debug box during rotation
+        if (typeof Utils !== 'undefined') {
+            Utils.updateDebugBox(shape.id, 'shape');
         }
 
         // Update handles position
@@ -655,10 +739,37 @@ const Shapes = {
             const distance = Math.sqrt(dx * dx + dy * dy);
 
             if (this.resizeDirection === 'text') {
-                // For text, adjust font size based on distance
-                const newFontSize = Math.max(12, Math.min(200, distance / 4));
-                shape.fontSize = newFontSize;
-                shape.width = Math.max(100, distance * 2);
+                // For text, use initial state to calculate smooth scale factor
+                if (this.initialTextFontSize && this.initialTextHandleDistance) {
+                    const canvasRect = AppState.canvas.getBoundingClientRect();
+                    const pixelScaleX = canvasRect.width / AppState.boardWidth;
+                    const pixelScaleY = canvasRect.height / AppState.boardHeight;
+
+                    // Calculate current mouse distance from shape center in pixels
+                    const shapeCenterScreenX = canvasRect.left + shape.x * pixelScaleX;
+                    const shapeCenterScreenY = canvasRect.top + shape.y * pixelScaleY;
+
+                    const mouseDx = e.clientX - shapeCenterScreenX;
+                    const mouseDy = e.clientY - shapeCenterScreenY;
+                    const currentMouseDistance = Math.sqrt(mouseDx * mouseDx + mouseDy * mouseDy);
+
+                    // Scale factor is ratio of current mouse distance to initial handle distance
+                    const scaleFactor = currentMouseDistance / this.initialTextHandleDistance;
+
+                    // Apply scale to initial font size
+                    const newFontSize = Math.max(12, Math.min(500, this.initialTextFontSize * scaleFactor));
+
+                    // Update font size and maintain proper aspect ratio (2:1)
+                    shape.fontSize = newFontSize;
+                    shape.width = newFontSize * 3;  // viewBox width = fontSize * 3
+                    shape.height = newFontSize * 1.5; // viewBox height = fontSize * 1.5
+                } else {
+                    // Fallback to simple distance-based resizing if initial state not captured
+                    const newFontSize = Math.max(12, Math.min(500, distance / 4));
+                    shape.fontSize = newFontSize;
+                    shape.width = newFontSize * 3;
+                    shape.height = newFontSize * 1.5;
+                }
             } else if (this.resizeDirection === 'horizontal' || this.resizeDirection === 'both') {
                 shape.width = Math.max(50, distance * 2);
             }
@@ -704,40 +815,155 @@ const Shapes = {
                     lineElement.setAttribute('x2', shape.width/2);
                 }
             } else {
-                const maxDim = Math.max(width, height);
-                shapeSvg.setAttribute('width', maxDim);
-                shapeSvg.setAttribute('height', maxDim);
-                shapeSvg.style.transform = `translate(${-maxDim/2}px, ${-maxDim/2}px) rotate(${shape.rotation || 0}deg)`;
-                shapeSvg.style.transformOrigin = `${maxDim/2}px ${maxDim/2}px`;
+                // Use actual shape dimensions for viewBox to ensure stable coordinates
+                let viewBoxWidth = shape.width;
+                let viewBoxHeight = shape.height;
 
-                // Update shape content elements
+                // For text shapes, use a viewBox based on fontSize for proper proportions
+                if (shape.type === 'text') {
+                    const fontSize = shape.fontSize || 48;
+                    viewBoxWidth = fontSize * 3;
+                    viewBoxHeight = fontSize * 1.5;
+                }
+
+                shapeSvg.setAttribute('viewBox', `0 0 ${viewBoxWidth} ${viewBoxHeight}`);
+                shapeSvg.setAttribute('width', width);
+                shapeSvg.setAttribute('height', height);
+                shapeSvg.style.transform = `translate(${-width/2}px, ${-height/2}px) rotate(${shape.rotation || 0}deg)`;
+                shapeSvg.style.transformOrigin = `${width/2}px ${height/2}px`;
+
+                // Update shape content elements using actual shape dimensions
+                const margin = 5;
                 if (shape.type === 'rectangle') {
-                    const rectElement = shapeSvg.querySelector('rect');
+                    // Get the visible rect (second rect element, first is transparent hit area)
+                    const rectElements = shapeSvg.querySelectorAll('rect');
+                    const rectElement = rectElements[1] || rectElements[0];
                     if (rectElement) {
-                        const rectWidth = (width / maxDim) * 100;
-                        const rectHeight = (height / maxDim) * 100;
-                        const rectX = (100 - rectWidth) / 2;
-                        const rectY = (100 - rectHeight) / 2;
-                        rectElement.setAttribute('x', rectX);
-                        rectElement.setAttribute('y', rectY);
-                        rectElement.setAttribute('width', rectWidth);
-                        rectElement.setAttribute('height', rectHeight);
+                        rectElement.setAttribute('x', margin);
+                        rectElement.setAttribute('y', margin);
+                        rectElement.setAttribute('width', shape.width - (margin * 2));
+                        rectElement.setAttribute('height', shape.height - (margin * 2));
                     }
                 } else if (shape.type === 'ellipse') {
                     const ellipseElement = shapeSvg.querySelector('ellipse');
                     if (ellipseElement) {
-                        const ellipseRx = (width / maxDim) * 45;
-                        const ellipseRy = (height / maxDim) * 45;
-                        ellipseElement.setAttribute('rx', ellipseRx);
-                        ellipseElement.setAttribute('ry', ellipseRy);
+                        const cx = shape.width / 2;
+                        const cy = shape.height / 2;
+                        const rx = (shape.width / 2) - margin;
+                        const ry = (shape.height / 2) - margin;
+                        ellipseElement.setAttribute('cx', cx);
+                        ellipseElement.setAttribute('cy', cy);
+                        ellipseElement.setAttribute('rx', rx);
+                        ellipseElement.setAttribute('ry', ry);
+                    }
+                } else if (shape.type === 'circle') {
+                    const circleElement = shapeSvg.querySelector('circle');
+                    if (circleElement) {
+                        const cx = shape.width / 2;
+                        const cy = shape.height / 2;
+                        const r = (shape.width / 2) - margin;
+                        circleElement.setAttribute('cx', cx);
+                        circleElement.setAttribute('cy', cy);
+                        circleElement.setAttribute('r', r);
                     }
                 } else if (shape.type === 'text') {
                     const textElement = shapeSvg.querySelector('text');
                     if (textElement) {
-                        textElement.setAttribute('font-size', shape.fontSize || 24);
+                        const fontSize = shape.fontSize || 48;
+                        const cx = fontSize * 1.5;  // Half of viewBox width (fontSize * 3)
+                        const cy = fontSize * 0.75;      // Half of viewBox height (fontSize * 1.5)
+                        textElement.setAttribute('x', cx);
+                        textElement.setAttribute('y', cy + 5);
+                        textElement.setAttribute('font-size', fontSize);
+                    }
+
+                    // Update text overlay if in touch mode
+                    if (document.body.classList.contains('touch-mode')) {
+                        const overlay = this.layer.querySelector(`.touch-overlay[data-shape="${shape.id}"]`);
+                        if (overlay && shapeSvg) {
+                            try {
+                                const bbox = textElement.getBBox();
+
+                                const paddingHorizontal = 20;
+                                const paddingTop = 8;
+                                const paddingBottom = 10;
+
+                                // Get fontSize-based viewBox dimensions
+                                const fontSize = shape.fontSize || 48;
+                                const svgViewBoxWidth = fontSize * 3;
+                                const svgViewBoxHeight = fontSize * 1.5;
+
+                                // Scale factor from viewBox to canvas coordinates (based on shape dimensions)
+                                const svgScaleX = width / svgViewBoxWidth;
+                                const svgScaleY = height / svgViewBoxHeight;
+
+                                const textWidth = bbox.width * svgScaleX;
+                                const textHeight = bbox.height * svgScaleY;
+
+                                const overlayWidth = textWidth + paddingHorizontal * 2;
+                                const overlayHeight = textHeight + paddingTop + paddingBottom;
+
+                                overlay.style.width = overlayWidth + 'px';
+                                overlay.style.height = overlayHeight + 'px';
+
+                                // Calculate offset using SVG coordinates
+                                const textTopInViewBox = bbox.y;
+                                const textTopInCanvas = textTopInViewBox * svgScaleY;
+                                const svgCenterInCanvas = height / 2;
+                                // Position overlay top at textTop - paddingTop for proper padding
+                                const overlayCenter = textTopInCanvas - paddingTop + overlayHeight / 2;
+                                const overlayYOffset = overlayCenter - svgCenterInCanvas;
+
+                                overlay.style.left = x + 'px';
+                                overlay.style.top = (y + overlayYOffset) + 'px';
+                                overlay.style.transform = `translate(${-overlayWidth/2}px, ${-overlayHeight/2}px) rotate(${shape.rotation || 0}deg)`;
+                                overlay.style.transformOrigin = `${overlayWidth/2}px ${overlayHeight/2}px`;
+                            } catch (e) {
+                                // Ignore errors during resize
+                            }
+                        }
                     }
                 }
-                // circle doesn't need content update - it's always r="45" in the viewBox
+            }
+
+            // Update touch overlay for non-text shapes (text overlay is updated above)
+            if (document.body.classList.contains('touch-mode') && shape.type !== 'text') {
+                const overlay = this.layer.querySelector(`.touch-overlay[data-shape="${shape.id}"]`);
+                if (overlay) {
+                    const canvasRect = AppState.canvas.getBoundingClientRect();
+                    const pixelScaleX = canvasRect.width / AppState.boardWidth;
+                    const pixelScaleY = canvasRect.height / AppState.boardHeight;
+
+                    const x = shape.x * pixelScaleX;
+                    const y = shape.y * pixelScaleY;
+                    let width = shape.width * pixelScaleX;
+                    let height = shape.height * pixelScaleY;
+
+                    // For lines/arrows, use the visual height with minimum touch area
+                    if (shape.type === 'line' || shape.type === 'arrow') {
+                        height = Math.max(20, 20 * pixelScaleY);
+                    } else {
+                        // For rectangles, circles, ellipses: add tolerance padding
+                        const tolerancePadding = 28;
+                        width += tolerancePadding;
+                        height += tolerancePadding;
+                    }
+
+                    overlay.style.left = x + 'px';
+                    overlay.style.top = y + 'px';
+                    overlay.style.width = width + 'px';
+                    overlay.style.height = height + 'px';
+                    overlay.style.transform = `translate(${-width/2}px, ${-height/2}px) rotate(${shape.rotation || 0}deg)`;
+                    overlay.style.transformOrigin = `${width/2}px ${height/2}px`;
+                }
+            }
+        }
+
+        // Update debug box during resize
+        if (typeof Utils !== 'undefined' && AppState.selectedShape) {
+            const shape = AppState.getShape(AppState.selectedShape);
+            if (shape) {
+                Utils.updateDebugBox(shape.id, 'shape');
             }
         }
 
@@ -761,29 +987,32 @@ const Shapes = {
 
         // Update rotation handle if it exists
         if (this.rotationHandle) {
-            const handleDistanceInBoardUnits = 150;
-            let handleDistance;
-            if (shape.type === 'line' || shape.type === 'arrow') {
-                handleDistance = handleDistanceInBoardUnits * scaleX;
-            } else {
-                handleDistance = (Math.max(shape.width, shape.height) / 2 + handleDistanceInBoardUnits) * scaleX;
-            }
+            const handleDistance = (shape.height || 0) / 2 * scaleY + 50;
             const rotation = (shape.rotation || 0) * Math.PI / 180;
 
             const handleX = centerX + Math.cos(rotation - Math.PI / 2) * handleDistance;
             const handleY = centerY + Math.sin(rotation - Math.PI / 2) * handleDistance;
 
-            const handleSize = Math.max(20 * scaleX, 15);
+            const handleSize = 28;
 
-            this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
-            this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
+            // Check if handle is in board-container (needs offset) or board-area (no offset)
+            const isInBoardContainer = this.rotationHandle.parentElement?.classList.contains('board-container');
+            if (isInBoardContainer) {
+                const boardContainer = this.rotationHandle.parentElement;
+                const containerRect = boardContainer.getBoundingClientRect();
+                this.rotationHandle.style.left = (canvasRect.left - containerRect.left + handleX - handleSize / 2) + 'px';
+                this.rotationHandle.style.top = (canvasRect.top - containerRect.top + handleY - handleSize / 2) + 'px';
+            } else {
+                this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
+                this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
+            }
         }
 
         // Update resize handles if they exist
         if (this.resizeHandles.length > 0) {
             const rotation = (shape.rotation || 0) * Math.PI / 180;
             const widthHalf = (shape.width / 2) * scaleX;
-            const heightHalf = (shape.height / 2) * scaleX;
+            const heightHalf = (shape.height / 2) * scaleY;
             const handleSize = Math.max(15 * scaleX, 10);
 
             if (shape.type === 'line' || shape.type === 'arrow') {
@@ -794,21 +1023,75 @@ const Shapes = {
                     this.resizeHandles[0].style.left = (rightX - handleSize / 2) + 'px';
                     this.resizeHandles[0].style.top = (rightY - handleSize / 2) + 'px';
                 }
-            } else if (shape.type === 'circle' || shape.type === 'text') {
-                // Single handle
+            } else if (shape.type === 'circle') {
+                // Single handle for circle
                 if (this.resizeHandles[0]) {
                     const rightX = centerX + Math.cos(rotation) * widthHalf;
                     const rightY = centerY + Math.sin(rotation) * widthHalf;
                     this.resizeHandles[0].style.left = (rightX - handleSize / 2) + 'px';
                     this.resizeHandles[0].style.top = (rightY - handleSize / 2) + 'px';
                 }
+            } else if (shape.type === 'text') {
+                // Text handle: position at right side of text, vertically centered
+                if (this.resizeHandles[0]) {
+                    const svg = this.shapeSvgs[shape.id];
+                    let offsetX = widthHalf;
+                    let offsetY = 0;
+
+                    if (svg) {
+                        const textElement = svg.querySelector('text');
+                        if (textElement) {
+                            try {
+                                const bbox = textElement.getBBox();
+
+                                // Get SVG viewBox dimensions
+                                const svgViewBox = svg.getAttribute('viewBox').split(' ');
+                                const svgViewBoxWidth = parseFloat(svgViewBox[2]);
+                                const svgViewBoxHeight = parseFloat(svgViewBox[3]);
+
+                                // Scale factor from viewBox to canvas
+                                const width = shape.width * scaleX;
+                                const height = shape.height * scaleY;
+                                const svgScaleX = width / svgViewBoxWidth;
+                                const svgScaleY = height / svgViewBoxHeight;
+
+                                // Right-center point in SVG coordinates
+                                const svgRightX = bbox.x + bbox.width;
+                                const svgCenterY = bbox.y + bbox.height / 2;
+
+                                // Center of SVG in viewBox coords
+                                const svgCenterInViewBoxX = svgViewBoxWidth / 2;
+                                const svgCenterInViewBoxY = svgViewBoxHeight / 2;
+
+                                // Offset from SVG center to right-center point (in viewBox coords)
+                                const offsetInViewBoxX = svgRightX - svgCenterInViewBoxX;
+                                const offsetInViewBoxY = svgCenterY - svgCenterInViewBoxY;
+
+                                // Convert to canvas pixels
+                                const pixelOffsetX = offsetInViewBoxX * svgScaleX;
+                                const pixelOffsetY = offsetInViewBoxY * svgScaleY;
+
+                                // Rotate the offset by the shape's rotation
+                                const rotation = (shape.rotation || 0) * Math.PI / 180;
+                                const cos = Math.cos(rotation);
+                                const sin = Math.sin(rotation);
+
+                                offsetX = pixelOffsetX * cos - pixelOffsetY * sin;
+                                offsetY = pixelOffsetX * sin + pixelOffsetY * cos;
+                            } catch (e) {
+                                // Fallback to shape.width
+                            }
+                        }
+                    }
+
+                    const rightX = centerX + offsetX;
+                    const rightY = centerY + offsetY;
+                    this.resizeHandles[0].style.left = (rightX - handleSize / 2) + 'px';
+                    this.resizeHandles[0].style.top = (rightY - handleSize / 2) + 'px';
+                }
             } else {
-                // Rectangle and ellipse: 4 corner + 4 edge handles (mirrors createResizeHandles order)
+                // Rectangle and ellipse: 4 edge handles only (2 horizontal, 2 vertical)
                 const allHandlePositions = [
-                    { x: widthHalf, y: -heightHalf },
-                    { x: widthHalf, y: heightHalf },
-                    { x: -widthHalf, y: heightHalf },
-                    { x: -widthHalf, y: -heightHalf },
                     { x: widthHalf, y: 0 },
                     { x: -widthHalf, y: 0 },
                     { x: 0, y: heightHalf },
@@ -848,6 +1131,7 @@ const Shapes = {
                 return;
             }
 
+            const boardContainer = document.querySelector('.board-container');
             const canvasRect = AppState.canvas.getBoundingClientRect();
             const scaleX = canvasRect.width / AppState.boardWidth;
             const scaleY = canvasRect.height / AppState.boardHeight;
@@ -856,47 +1140,56 @@ const Shapes = {
             const centerY = shape.y * scaleY;
 
             // Rotation handle
-            const handleDistanceInBoardUnits = 150;
-            // For lines and arrows, use fixed distance; for other shapes, add half the size
-            let handleDistance;
-            if (shape.type === 'line' || shape.type === 'arrow') {
-                handleDistance = handleDistanceInBoardUnits * scaleX;
-            } else {
-                handleDistance = (Math.max(shape.width, shape.height) / 2 + handleDistanceInBoardUnits) * scaleX;
-            }
+            const handleDistance = (shape.height || 0) / 2 * scaleY + 50;
             const rotation = (shape.rotation || 0) * Math.PI / 180;
 
             const handleX = centerX + Math.cos(rotation - Math.PI / 2) * handleDistance;
             const handleY = centerY + Math.sin(rotation - Math.PI / 2) * handleDistance;
 
-            const handleSize = Math.max(20 * scaleX, 15);
+            const handleSize = 28;
 
             this.rotationHandle = document.createElement('div');
             this.rotationHandle.className = 'rotation-handle';
             this.rotationHandle.style.width = handleSize + 'px';
             this.rotationHandle.style.height = handleSize + 'px';
-            this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
-            this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
+
+            // Calculate position - if appending to board-container, use canvas offset
+            if (boardContainer) {
+                const containerRect = boardContainer.getBoundingClientRect();
+                this.rotationHandle.style.left = (canvasRect.left - containerRect.left + handleX - handleSize / 2) + 'px';
+                this.rotationHandle.style.top = (canvasRect.top - containerRect.top + handleY - handleSize / 2) + 'px';
+            } else {
+                this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
+                this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
+            }
 
             this.rotationHandle.addEventListener('mousedown', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                // Clear any drag state to prevent interference
+                AppState.draggedShape = null;
+                AppState.dragOffset = null;
                 this.isRotating = true;
                 AppState.updatePositionDisplay(shape.x, shape.y, shape, 'shape');
             });
 
-            this.layer.appendChild(this.rotationHandle);
+            // Append to board-area's parent (board-container) to ensure it's above all SVG elements
+            if (boardContainer) {
+                boardContainer.appendChild(this.rotationHandle);
+            } else {
+                this.layer.appendChild(this.rotationHandle);
+            }
 
             // Resize handles
-            this.createResizeHandles(shape, centerX, centerY, scaleX);
+            this.createResizeHandles(shape, centerX, centerY, scaleX, scaleY);
         }
     },
 
     // Create resize handles
-    createResizeHandles(shape, centerX, centerY, scaleX) {
+    createResizeHandles(shape, centerX, centerY, scaleX, scaleY) {
         const handleSize = Math.max(15 * scaleX, 10);
         const widthHalf = (shape.width / 2) * scaleX;
-        const heightHalf = (shape.height / 2) * scaleX;
+        const heightHalf = (shape.height / 2) * scaleY;
 
         const rotation = (shape.rotation || 0) * Math.PI / 180;
 
@@ -918,21 +1211,67 @@ const Shapes = {
             this.resizeHandles.push(handle);
             this.layer.appendChild(handle);
         } else if (shape.type === 'text') {
-            // Text: one handle for font size scaling
-            const rightX = centerX + Math.cos(rotation) * widthHalf;
-            const rightY = centerY + Math.sin(rotation) * widthHalf;
+            // Text: one handle for font size scaling at right side of text, vertically centered
+            const svg = this.shapeSvgs[shape.id];
+            let offsetX = widthHalf;
+            let offsetY = 0;
+
+            if (svg) {
+                const textElement = svg.querySelector('text');
+                if (textElement) {
+                    try {
+                        const bbox = textElement.getBBox();
+                        const canvasRect = AppState.canvas.getBoundingClientRect();
+
+                        // Get SVG viewBox dimensions
+                        const svgViewBox = svg.getAttribute('viewBox').split(' ');
+                        const svgViewBoxWidth = parseFloat(svgViewBox[2]);
+                        const svgViewBoxHeight = parseFloat(svgViewBox[3]);
+
+                        // Scale factor from viewBox to canvas
+                        const width = shape.width * scaleX;
+                        const height = shape.height * scaleY;
+                        const svgScaleX = width / svgViewBoxWidth;
+                        const svgScaleY = height / svgViewBoxHeight;
+
+                        // Right-center point in SVG coordinates
+                        const svgRightX = bbox.x + bbox.width;
+                        const svgCenterY = bbox.y + bbox.height / 2;
+
+                        // Center of SVG in viewBox coords
+                        const svgCenterInViewBoxX = svgViewBoxWidth / 2;
+                        const svgCenterInViewBoxY = svgViewBoxHeight / 2;
+
+                        // Offset from SVG center to right-center point (in viewBox coords)
+                        const offsetInViewBoxX = svgRightX - svgCenterInViewBoxX;
+                        const offsetInViewBoxY = svgCenterY - svgCenterInViewBoxY;
+
+                        // Convert to canvas pixels
+                        const pixelOffsetX = offsetInViewBoxX * svgScaleX;
+                        const pixelOffsetY = offsetInViewBoxY * svgScaleY;
+
+                        // Rotate the offset by the shape's rotation
+                        const rotation = (shape.rotation || 0) * Math.PI / 180;
+                        const cos = Math.cos(rotation);
+                        const sin = Math.sin(rotation);
+
+                        offsetX = pixelOffsetX * cos - pixelOffsetY * sin;
+                        offsetY = pixelOffsetX * sin + pixelOffsetY * cos;
+                    } catch (e) {
+                        // Fallback to shape.width
+                    }
+                }
+            }
+
+            const rightX = centerX + offsetX;
+            const rightY = centerY + offsetY;
 
             const handle = this.createResizeHandle(rightX, rightY, handleSize, 'text');
             this.resizeHandles.push(handle);
             this.layer.appendChild(handle);
         } else {
-            // Rectangle and ellipse: 4 corner handles first, then 4 edge midpoint handles = 8 total
-            // Corners first so that the first handle (.resize-handle:first) supports diagonal drag
+            // Rectangle and ellipse: 4 edge midpoint handles only (2 horizontal, 2 vertical)
             const edges = [
-                { x: widthHalf, y: -heightHalf, dir: 'corner', offsetX: shape.width / 2, offsetY: -shape.height / 2 },
-                { x: widthHalf, y: heightHalf, dir: 'corner', offsetX: shape.width / 2, offsetY: shape.height / 2 },
-                { x: -widthHalf, y: heightHalf, dir: 'corner', offsetX: -shape.width / 2, offsetY: shape.height / 2 },
-                { x: -widthHalf, y: -heightHalf, dir: 'corner', offsetX: -shape.width / 2, offsetY: -shape.height / 2 },
                 { x: widthHalf, y: 0, dir: 'horizontal', offsetX: shape.width / 2, offsetY: 0 },
                 { x: -widthHalf, y: 0, dir: 'horizontal', offsetX: -shape.width / 2, offsetY: 0 },
                 { x: 0, y: heightHalf, dir: 'vertical', offsetX: 0, offsetY: shape.height / 2 },
@@ -971,9 +1310,37 @@ const Shapes = {
         handle.addEventListener('mousedown', (e) => {
             e.preventDefault();
             e.stopPropagation();
+            // Clear any drag state to prevent interference
+            AppState.draggedShape = null;
+            AppState.dragOffset = null;
             this.isResizing = true;
             this.resizeDirection = direction;
             this.resizeCornerOffset = cornerOffset || null;
+
+            // For text resize, capture initial state to prevent jumps
+            if (direction === 'text' && AppState.selectedShape) {
+                const shape = AppState.getShape(AppState.selectedShape);
+                if (shape && shape.type === 'text') {
+                    const canvasRect = AppState.canvas.getBoundingClientRect();
+                    const scaleX = canvasRect.width / AppState.boardWidth;
+                    const scaleY = canvasRect.height / AppState.boardHeight;
+
+                    // Store initial font size
+                    this.initialTextFontSize = shape.fontSize || 48;
+
+                    // Calculate initial handle position (distance from shape center)
+                    const handleRect = e.target.getBoundingClientRect();
+                    const handleCenterX = handleRect.left + handleRect.width / 2;
+                    const handleCenterY = handleRect.top + handleRect.height / 2;
+
+                    const shapeCenterX = canvasRect.left + shape.x * scaleX;
+                    const shapeCenterY = canvasRect.top + shape.y * scaleY;
+
+                    const dx = handleCenterX - shapeCenterX;
+                    const dy = handleCenterY - shapeCenterY;
+                    this.initialTextHandleDistance = Math.sqrt(dx * dx + dy * dy);
+                }
+            }
         });
 
         return handle;
@@ -1017,10 +1384,8 @@ const Shapes = {
         const menuCopy = menu.cloneNode(true);
         menu.parentNode.replaceChild(menuCopy, menu);
 
-        // Position menu and ensure it stays within viewport
+        // Remove hidden class first (but don't position yet - need to add items first)
         menuCopy.classList.remove('hidden');
-
-        Utils.positionContextMenu(menuCopy, x, y);
 
         // Show lock menu item and set text based on current state
         const lockItem = menuCopy.querySelector('[data-action="lock"]');
@@ -1125,6 +1490,9 @@ const Shapes = {
                 item.classList.remove('disabled');
             }
         });
+
+        // Position menu AFTER all items have been added to ensure correct height calculation
+        Utils.positionContextMenu(menuCopy, x, y);
 
         menuCopy.addEventListener('click', (e) => {
             const item = e.target.closest('.context-menu-item');
@@ -1372,17 +1740,23 @@ const Shapes = {
             return;
         }
 
-        // Clear ALL shape SVGs from the DOM
+        // Clear ALL shape SVGs and touch overlays from the DOM
         this.layer.querySelectorAll('.shape-svg').forEach(svg => {
             svg.remove();
         });
+        this.layer.querySelectorAll('.touch-overlay[data-shape]').forEach(el => el.remove());
         this.shapeSvgs = {};
+
+        // Remove only shape debug boxes before rendering
+        document.querySelectorAll('.debug-tolerance-box[data-debug-type="shape"]').forEach(box => box.remove());
 
         // Render each shape
         if (AppState.shapes) {
             AppState.shapes.forEach(shape => {
                 if (shape.visible) {
                     this.renderShape(shape);
+                    // DEBUG: Show bounding box for all shapes
+                    this.showDebugBox(shape);
                 }
             });
         }
@@ -1391,12 +1765,156 @@ const Shapes = {
         this.updateHandles();
     },
 
+    // DEBUG: Show bounding box for a shape
+    showDebugBox(shape) {
+        if (typeof Utils !== 'undefined') {
+            Utils.showDebugBox(shape.id, 'shape', shape);
+        }
+    },
+
     // Render individual shape
     renderShape(shape) {
+        // Auto-correct text shape dimensions to match fontSize
+        if (shape.type === 'text') {
+            const fontSize = shape.fontSize || 48;
+            const expectedWidth = fontSize * 3;
+            const expectedHeight = fontSize * 1.5;
+
+            // Update if dimensions don't match
+            if (Math.abs(shape.width - expectedWidth) > 1 || Math.abs(shape.height - expectedHeight) > 1) {
+                shape.width = expectedWidth;
+                shape.height = expectedHeight;
+                AppState.saveToLocalStorage();
+            }
+        }
+
         const svg = this.createShapeSvg(shape);
         if (svg) {
             this.layer.appendChild(svg);
             this.shapeSvgs[shape.id] = svg;
+
+            // Add a larger transparent hit area in touch mode
+            if (document.body.classList.contains('touch-mode')) {
+                const canvasRect = AppState.canvas.getBoundingClientRect();
+                const scaleX = canvasRect.width / AppState.boardWidth;
+                const scaleY = canvasRect.height / AppState.boardHeight;
+                const x = shape.x * scaleX;
+                const y = shape.y * scaleY;
+                let width = shape.width * scaleX;
+                let height = shape.height * scaleY;
+
+                let overlayWidth, overlayHeight, overlayX, overlayY, overlayYOffset;
+
+                // For text shapes, calculate overlay size based on actual text bounding box
+                if (shape.type === 'text') {
+                    const textElement = svg.querySelector('text');
+                    if (textElement) {
+                        try {
+                            const bbox = textElement.getBBox();
+
+                            const paddingHorizontal = 20;
+                            const paddingTop = 8;
+                            const paddingBottom = 10;
+
+                            // Get fontSize-based viewBox dimensions
+                            const fontSize = shape.fontSize || 48;
+                            const svgViewBoxWidth = fontSize * 3;
+                            const svgViewBoxHeight = fontSize * 1.5;
+
+                            // Scale factor from viewBox to canvas coordinates (based on shape dimensions)
+                            const svgScaleX = width / svgViewBoxWidth;
+                            const svgScaleY = height / svgViewBoxHeight;
+
+                            const textWidth = bbox.width * svgScaleX;
+                            const textHeight = bbox.height * svgScaleY;
+
+                            overlayWidth = textWidth + paddingHorizontal * 2;
+                            overlayHeight = textHeight + paddingTop + paddingBottom;
+
+                            // Calculate offset using SVG coordinates
+                            const textTopInViewBox = bbox.y;
+                            const textTopInCanvas = textTopInViewBox * svgScaleY;
+                            const svgCenterInCanvas = height / 2;
+                            // Position overlay top at textTop - paddingTop for proper padding
+                            const overlayCenter = textTopInCanvas - paddingTop + overlayHeight / 2;
+                            overlayYOffset = overlayCenter - svgCenterInCanvas;
+
+                            overlayX = x;
+                            overlayY = y + overlayYOffset;
+                        } catch (e) {
+                            // Fallback to simple padding if getBBox fails
+                            overlayWidth = width + 4;
+                            overlayHeight = height + 4;
+                            overlayX = x;
+                            overlayY = y;
+                            overlayYOffset = 0;
+                        }
+                    } else {
+                        // Fallback if text element not found
+                        overlayWidth = width + 4;
+                        overlayHeight = height + 4;
+                        overlayX = x;
+                        overlayY = y;
+                        overlayYOffset = 0;
+                    }
+                } else {
+                    // For non-text shapes, use shape dimensions with tolerance for easier tapping
+                    // For lines/arrows, use the visual height with minimum touch area
+                    if (shape.type === 'line' || shape.type === 'arrow') {
+                        height = Math.max(20 * scaleY, 20);
+                        // Touch overlay should be 28px bigger than the SVG box
+                        overlayWidth = width + 28;
+                        overlayHeight = height + 28;
+                    } else {
+                        // For rectangles, circles, ellipses: add tolerance padding
+                        // 40px total padding = 20px on each side for easier touch selection
+                        const tolerancePadding = 40; // pixels of extra touch area around shape
+                        overlayWidth = width + tolerancePadding;
+                        overlayHeight = height + tolerancePadding;
+                    }
+                    overlayX = x;
+                    overlayY = y;
+                    overlayYOffset = 0;
+                }
+
+                const overlay = document.createElement('div');
+                overlay.className = 'touch-overlay';
+                overlay.style.left = overlayX + 'px';
+                overlay.style.top = overlayY + 'px';
+                overlay.style.width = overlayWidth + 'px';
+                overlay.style.height = overlayHeight + 'px';
+
+                // Set border-radius based on shape type
+                if (shape.type === 'circle') {
+                    overlay.style.borderRadius = '50%';
+                } else if (shape.type === 'ellipse') {
+                    overlay.style.borderRadius = '50%';
+                } else {
+                    overlay.style.borderRadius = '0';
+                }
+
+                // Use pixel-based transform to match SVG positioning exactly
+                overlay.style.transform = `translate(${-overlayWidth/2}px, ${-overlayHeight/2}px) rotate(${shape.rotation || 0}deg)`;
+                overlay.style.transformOrigin = `${overlayWidth/2}px ${overlayHeight/2}px`;
+
+                // Store yOffset for drag updates
+                if (overlayYOffset) {
+                    overlay.dataset.yOffset = overlayYOffset.toString();
+                }
+
+                // Shape overlay = visual z-index + 100 (integers only)
+                const shapeOverlayZIndex = {
+                    'rectangle': '111',  // 11 + 100
+                    'circle': '112',     // 12 + 100 (ellipse uses circle type)
+                    'line': '113',       // 13 + 100
+                    'arrow': '114',      // 14 + 100
+                    'text': '115'        // 15 + 100
+                };
+                overlay.style.zIndex = shapeOverlayZIndex[shape.type] || '111';
+                overlay.style.pointerEvents = 'auto';
+                overlay.dataset.shape = shape.id;
+                this.layer.appendChild(overlay);
+            }
         }
     },
 
@@ -1427,9 +1945,20 @@ const Shapes = {
 
         svg.style.position = 'absolute';
         svg.style.overflow = 'visible';
-        svg.style.pointerEvents = 'all';
         svg.style.cursor = 'default';
         svg.style.touchAction = 'none';
+        svg.style.pointerEvents = 'auto';
+
+        // Set z-index based on shape type (integers only)
+        const shapeZIndex = {
+            'rectangle': '11',  // Base shape
+            'circle': '12',     // Ellipse is rendered as circle
+            'line': '13',
+            'arrow': '14',
+            'text': '15'        // Highest shape
+        };
+        svg.style.zIndex = shapeZIndex[shape.type] || '11';
+
         svg.id = shape.id; // Use ID for fast lookup, consistent with other modules
         svg.dataset.shape = shape.id;
 
@@ -1450,55 +1979,122 @@ const Shapes = {
             svg.style.transform = `translate(${-width/2}px, ${-lineH/2}px) rotate(${shape.rotation || 0}deg)`;
             svg.style.transformOrigin = `${width/2}px ${lineH/2}px`;
         } else {
-            svg.setAttribute('viewBox', `0 0 100 100`);
-            svg.setAttribute('width', maxDim);
-            svg.setAttribute('height', maxDim);
+            // Use actual shape dimensions for viewBox to ensure stable coordinates
+            let viewBoxWidth = shape.width;
+            let viewBoxHeight = shape.height;
+
+            // For text shapes, use a viewBox based on fontSize for proper proportions
+            if (shape.type === 'text') {
+                const fontSize = shape.fontSize || 48;
+                viewBoxWidth = fontSize * 3;  // Proportional to font size
+                viewBoxHeight = fontSize * 1.5;
+            }
+
+            svg.setAttribute('viewBox', `0 0 ${viewBoxWidth} ${viewBoxHeight}`);
+            svg.setAttribute('width', width);
+            svg.setAttribute('height', height);
             svg.style.left = x + 'px';
             svg.style.top = y + 'px';
-            svg.style.transform = `translate(${-maxDim/2}px, ${-maxDim/2}px) rotate(${shape.rotation || 0}deg)`;
-            svg.style.transformOrigin = `${maxDim/2}px ${maxDim/2}px`;
+            svg.style.transform = `translate(${-width/2}px, ${-height/2}px) rotate(${shape.rotation || 0}deg)`;
+            svg.style.transformOrigin = `${width/2}px ${height/2}px`;
+        }
+
+        // Calculate viewBox dimensions for non-line shapes
+        // Use actual shape dimensions to ensure stable viewBox coordinates
+        let viewBoxWidth, viewBoxHeight;
+        if (shape.type !== 'line' && shape.type !== 'arrow') {
+            viewBoxWidth = shape.width;
+            viewBoxHeight = shape.height;
         }
 
         // Create shape content
         let content = '';
         switch (shape.type) {
             case 'line':
-                content = `<rect x="${-shape.width/2}" y="-10" width="${shape.width}" height="20" fill="transparent" class="shape-drag-handle"/>
-                <line x1="${-shape.width/2}" y1="0" x2="${shape.width/2}" y2="0" stroke="${shape.color}" stroke-width="${shape.strokeWidth}" fill="none" vector-effect="non-scaling-stroke"/>`;
+                content = `<rect x="${-shape.width/2}" y="-10" width="${shape.width}" height="20" fill="transparent" class="shape-drag-handle" pointer-events="all"/>
+                <line x1="${-shape.width/2}" y1="0" x2="${shape.width/2}" y2="0" stroke="${shape.color}" stroke-width="${shape.strokeWidth}" fill="none" vector-effect="non-scaling-stroke" pointer-events="none"/>`;
                 break;
             case 'arrow':
                 content = `
-                    <rect x="${-shape.width/2}" y="-10" width="${shape.width}" height="20" fill="transparent" class="shape-drag-handle"/>
+                    <rect x="${-shape.width/2}" y="-10" width="${shape.width}" height="20" fill="transparent" class="shape-drag-handle" pointer-events="all"/>
                     <defs>
                         <marker id="arrowhead-${shape.id}" markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto">
                             <polygon points="0,0 10,5 0,10" fill="${shape.color}"/>
                         </marker>
                     </defs>
-                    <line x1="${-shape.width/2}" y1="0" x2="${shape.width/2}" y2="0" stroke="${shape.color}" stroke-width="${shape.strokeWidth}" fill="none" marker-end="url(#arrowhead-${shape.id})" vector-effect="non-scaling-stroke"/>
+                    <line x1="${-shape.width/2}" y1="0" x2="${shape.width/2}" y2="0" stroke="${shape.color}" stroke-width="${shape.strokeWidth}" fill="none" marker-end="url(#arrowhead-${shape.id})" vector-effect="non-scaling-stroke" pointer-events="none"/>
                 `;
                 break;
-            case 'rectangle':
-                const rectWidth = (width / maxDim) * 100;
-                const rectHeight = (height / maxDim) * 100;
-                const rectX = (100 - rectWidth) / 2;
-                const rectY = (100 - rectHeight) / 2;
-                content = `<rect x="${rectX}" y="${rectY}" width="${rectWidth}" height="${rectHeight}" fill="${shape.fillColor}" stroke="${shape.color}" stroke-width="${shape.strokeWidth}" vector-effect="non-scaling-stroke"/>`;
-                break;
-            case 'circle':
-                content = `<circle cx="50" cy="50" r="45" fill="${shape.fillColor}" stroke="${shape.color}" stroke-width="${shape.strokeWidth}" vector-effect="non-scaling-stroke"/>`;
-                break;
-            case 'ellipse': {
-                const ellipseRx = (width / maxDim) * 45;
-                const ellipseRy = (height / maxDim) * 45;
-                const ellipseText = shape.text ? `<text x="50" y="55" text-anchor="middle" dominant-baseline="middle" font-size="16" font-weight="bold" fill="${shape.color}">${shape.text}</text>` : '';
-                content = `<ellipse cx="50" cy="50" rx="${ellipseRx}" ry="${ellipseRy}" fill="${shape.fillColor}" stroke="${shape.color}" stroke-width="${shape.strokeWidth}" vector-effect="non-scaling-stroke"/>${ellipseText}`;
+            case 'rectangle': {
+                const margin = 5;
+                const rectX = margin;
+                const rectY = margin;
+                const rectWidth = shape.width - (margin * 2);
+                const rectHeight = shape.height - (margin * 2);
+                content = `<rect x="${rectX}" y="${rectY}" width="${rectWidth}" height="${rectHeight}" fill="${shape.fillColor}" stroke="${shape.color}" stroke-width="${shape.strokeWidth}" vector-effect="non-scaling-stroke" pointer-events="all"/>`;
                 break;
             }
-            case 'text':
+            case 'circle': {
+                const margin = 5;
+                const cx = shape.width / 2;
+                const cy = shape.height / 2;
+                const r = (shape.width / 2) - margin;
+                content = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${shape.fillColor}" stroke="${shape.color}" stroke-width="${shape.strokeWidth}" vector-effect="non-scaling-stroke" pointer-events="all"/>`;
+                break;
+            }
+            case 'ellipse': {
+                const margin = 5;
+                const cx = shape.width / 2;
+                const cy = shape.height / 2;
+                const rx = (shape.width / 2) - margin;
+                const ry = (shape.height / 2) - margin;
+                const ellipseText = shape.text ? `<text x="${cx}" y="${cy + 5}" text-anchor="middle" dominant-baseline="middle" font-size="16" font-weight="bold" fill="${shape.color}" pointer-events="all">${shape.text}</text>` : '';
+                content = `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${shape.fillColor}" stroke="${shape.color}" stroke-width="${shape.strokeWidth}" vector-effect="non-scaling-stroke" pointer-events="all"/>${ellipseText}`;
+                break;
+            }
+            case 'text': {
                 const fontSize = shape.fontSize || 48;
                 const text = shape.text || 'Text';
-                content = `<text x="50" y="55" text-anchor="middle" font-size="${fontSize}" font-weight="bold" fill="${shape.color}">${text}</text>`;
+                // For text, use viewBox-based centering (viewBox is fontSize * 3 x fontSize * 1.5)
+                const cx = fontSize * 1.5;  // Half of viewBox width
+                const cy = fontSize * 0.75;      // Half of viewBox height
+
+                // Create text element first to measure it
+                const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                const tempText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                tempText.setAttribute('x', cx);
+                tempText.setAttribute('y', cy + 5);
+                tempText.setAttribute('text-anchor', 'middle');
+                tempText.setAttribute('dominant-baseline', 'middle');
+                tempText.setAttribute('font-size', fontSize);
+                tempText.setAttribute('font-weight', 'bold');
+                tempText.textContent = text;
+                tempSvg.appendChild(tempText);
+                document.body.appendChild(tempSvg);
+
+                let hitRect = '';
+                try {
+                    const bbox = tempText.getBBox();
+                    // Use actual text bounds for hit area, reduced by 20% in height to match debug box
+                    const hitHeight = bbox.height * 0.8;
+                    const hitY = bbox.y + (bbox.height - hitHeight) / 2; // Center the smaller hit area
+                    hitRect = `<rect x="${bbox.x}" y="${hitY}" width="${bbox.width}" height="${hitHeight}" fill="transparent" pointer-events="all"/>`;
+                } catch (e) {
+                    // Fallback to full viewBox if measurement fails
+                    hitRect = `<rect x="0" y="0" width="${viewBoxWidth}" height="${viewBoxHeight}" fill="transparent" pointer-events="all"/>`;
+                } finally {
+                    document.body.removeChild(tempSvg);
+                }
+
+                content = `${hitRect}<text x="${cx}" y="${cy + 5}" text-anchor="middle" dominant-baseline="middle" font-size="${fontSize}" font-weight="bold" fill="${shape.color}" pointer-events="none">${text}</text>`;
                 break;
+            }
+        }
+
+        // For non-line/arrow shapes (except text which handles its own hit rect), prepend a transparent hit rect
+        if (shape.type !== 'line' && shape.type !== 'arrow' && shape.type !== 'text') {
+            const hitRect = `<rect x="0" y="0" width="${viewBoxWidth}" height="${viewBoxHeight}" fill="transparent" pointer-events="all"/>`;
+            content = hitRect + content;
         }
 
         svg.innerHTML = content;
