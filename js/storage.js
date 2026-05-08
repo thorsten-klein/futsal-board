@@ -403,32 +403,11 @@ const Storage = {
             item.appendChild(spacer);
         }
 
-        // Icon
-        const icon = document.createElement('div');
-        icon.className = 'board-item-icon';
-        if (hasChildren) {
-            // Folder icon for boards with children
-            icon.innerHTML = `
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                </svg>
-            `;
-        } else {
-            // Board/document icon for leaf boards
-            icon.innerHTML = `
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                    <line x1="3" y1="9" x2="21" y2="9"></line>
-                </svg>
-            `;
-        }
-
         // Name
         const name = document.createElement('div');
         name.className = 'board-item-name';
         name.textContent = board.name;
 
-        item.appendChild(icon);
         item.appendChild(name);
 
         // Click to switch board
