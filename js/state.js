@@ -1153,12 +1153,12 @@ const AppState = {
     },
 
     // Duplicate a board
-    duplicateBoard(boardId) {
+    duplicateBoard(boardId, customName = null) {
         const board = this.boards.find(b => b.id === boardId);
         if (board) {
             const newBoard = structuredClone(board);
             newBoard.id = `board-${this.nextBoardId++}`;
-            newBoard.name = `${board.name} (Copy)`;
+            newBoard.name = customName || `${board.name} (Copy)`;
             this.boards.push(newBoard);
             this.saveToLocalStorage();
             return newBoard.id;

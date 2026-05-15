@@ -570,6 +570,7 @@ const Storage = {
     showRenameBoardModal(boardId) {
         const currentBoardId = boardId || AppState.currentBoardId;
         document.getElementById('board-name-input').value = AppState.boards.find(b => b.id === currentBoardId)?.name || '';
+        document.getElementById('board-name-modal-title').textContent = 'Rename Board';
         Utils.openModal('board-name-modal');
         document.getElementById('board-name-input').focus();
         document.getElementById('board-name-input').select();
@@ -579,6 +580,25 @@ const Storage = {
             this.updateBoardNameDisplay();
             this.renderBoardsList();
             Breadcrumb.render();
+        };
+    },
+
+    // Show duplicate board modal
+    showDuplicateBoardModal(boardId) {
+        const board = AppState.boards.find(b => b.id === boardId);
+        if (!board) return;
+
+        document.getElementById('board-name-input').value = `${board.name} (Copy)`;
+        document.getElementById('board-name-modal-title').textContent = 'Duplicate Board';
+        Utils.openModal('board-name-modal');
+        document.getElementById('board-name-input').focus();
+        document.getElementById('board-name-input').select();
+
+        this.boardNameCallback = (name) => {
+            const newBoardId = AppState.duplicateBoard(boardId, name);
+            if (newBoardId) {
+                this.renderBoardsList();
+            }
         };
     },
 
@@ -637,8 +657,7 @@ const Storage = {
 
     // Duplicate board
     duplicateBoard(boardId) {
-        AppState.duplicateBoard(boardId);
-        this.renderBoardsList();
+        this.showDuplicateBoardModal(boardId);
     },
 
     // Remove board
