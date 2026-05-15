@@ -234,13 +234,13 @@ test.describe('Shape Context Menu', () => {
         await page.waitForTimeout(200);
 
         // Size modal should be visible
-        const sizeModal = page.locator('#size-modal');
+        const sizeModal = page.locator('#shape-size-modal');
         await expect(sizeModal).toBeVisible();
 
         // Change size
-        await page.locator('#size-modal input[name="width"]').fill('500');
-        await page.locator('#size-modal input[name="height"]').fill('300');
-        await page.locator('#btn-size-modal-ok').click();
+        await page.locator('#shape-width').fill('500');
+        await page.locator('#shape-height').fill('300');
+        await page.locator('#btn-confirm-shape-size').click();
         await page.waitForTimeout(200);
 
         // Verify size changed

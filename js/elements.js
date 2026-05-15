@@ -397,11 +397,23 @@ const Elements = {
                 return;
             }
 
+            // Don't clear contextMenuElement if clicking on a modal (position or color modals)
+            const positionModal = document.getElementById('element-position-modal');
+            const colorModal = document.getElementById('element-color-modal');
+            const isClickingModal = (positionModal && positionModal.contains(e.target)) ||
+                                   (colorModal && colorModal.contains(e.target));
+
             // Only hide if not clicking on the menu itself
             if (!freshMenu.contains(e.target)) {
                 this.menuVisible = false;
                 freshMenu.classList.add('hidden');
                 freshMenu.style.display = 'none';
+                this.menuCloseTime = Date.now();
+
+                // Only clear contextMenuElement if not clicking on a modal
+                if (!isClickingModal) {
+                    this.contextMenuElement = null;
+                }
             }
         });
 
@@ -424,6 +436,7 @@ const Elements = {
                 freshMenu.classList.add('hidden');
                 freshMenu.style.display = 'none';
                 this.menuCloseTime = Date.now();
+                // Don't clear contextMenuElement here - let modals handle it
             } else {
             }
         };
@@ -437,6 +450,8 @@ const Elements = {
             this.menuVisible = false;
             freshMenu.classList.add('hidden');
             freshMenu.style.display = 'none';
+            this.menuCloseTime = Date.now();
+            this.contextMenuElement = null;
         });
 
         // Handle menu item clicks
@@ -490,15 +505,20 @@ const Elements = {
         // Color dialog
         document.getElementById('btn-cancel-color').addEventListener('click', () => {
             document.getElementById('element-color-modal').classList.add('hidden');
+
+            // Clear context element to allow reopening context menu
+            this.contextMenuElement = null;
         });
 
-        document.getElementById('btn-confirm-color').addEventListener('click', () => {
+        document.getElementById('btn-confirm-color').addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent event from bubbling to document click handler
             this.applyColor();
         });
 
         // Color presets
         document.querySelectorAll('.color-preset').forEach(preset => {
-            preset.addEventListener('click', () => {
+            preset.addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent event from bubbling to document click handler
                 const color = preset.dataset.color;
                 document.getElementById('element-color-picker').value = color;
             });
@@ -510,70 +530,181 @@ const Elements = {
         // Position dialog
         document.getElementById('btn-cancel-position').addEventListener('click', () => {
             document.getElementById('element-position-modal').classList.add('hidden');
+
+            // Clear context element to allow reopening context menu
+            this.contextMenuElement = null;
+
+            // Restore rotation handle display
+            if (this.rotationHandle) {
+                this.rotationHandle.style.display = '';
+            }
         });
 
         document.getElementById('btn-confirm-position').addEventListener('click', () => {
             this.applyPosition();
         });
 
-        // Position increment/decrement buttons
+        // Position/Size increment/decrement buttons
         this.positionInitialValues = { x: null, y: null, rotation: null };
+        this.sizeInitialValues = { width: null, height: null };
+        this.updatingFromButton = false; // Flag to prevent 'input' event from overwriting button logic
+
         document.querySelectorAll('.position-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.preventDefault();
                 const action = btn.dataset.action;
                 const field = btn.dataset.field;
-                const inputId = field === 'rotation' ? 'element-rotation' : `element-pos-${field}`;
-                const input = document.getElementById(inputId);
 
-                let currentValue = parseInt(input.value) || 0;
+                // Determine input ID based on field
+                let inputId, initialValues, increment, roundValue, fieldKey;
 
                 if (field === 'rotation') {
-                    // Rotation: smart rounding on first click, then 15 degree increments
-                    const initialValue = this.positionInitialValues[field];
-                    const isFirstAdjustment = initialValue === currentValue;
-
-                    if (isFirstAdjustment) {
-                        // Round to nearest 15
-                        if (action === 'increase') {
-                            currentValue = Math.ceil(currentValue / 15) * 15;
-                        } else {
-                            currentValue = Math.floor(currentValue / 15) * 15;
-                        }
-                    } else {
-                        // Increment/decrement by 15
-                        if (action === 'increase') {
-                            currentValue += 15;
-                        } else {
-                            currentValue -= 15;
-                        }
-                    }
-                    // Keep in 0-360 range
-                    currentValue = ((currentValue % 360) + 360) % 360;
+                    inputId = 'element-rotation';
+                    initialValues = this.positionInitialValues;
+                    fieldKey = 'rotation';
+                    increment = 15;
+                    roundValue = 15;
+                } else if (field === 'width' || field === 'height') {
+                    inputId = `shape-${field}`;
+                    initialValues = this.sizeInitialValues;
+                    fieldKey = field;
+                    increment = 50;
+                    roundValue = 50;
+                } else if (field === 'size-modal-width' || field === 'size-modal-height') {
+                    // Size modal buttons - use the field as-is since it already includes 'size-modal-'
+                    inputId = field;
+                    initialValues = this.sizeInitialValues;
+                    // Extract the actual field name (width or height) for initialValues lookup
+                    fieldKey = field.replace('size-modal-', '');
+                    increment = 50;
+                    roundValue = 50;
+                } else if (field === 'shape-x' || field === 'shape-y') {
+                    // Shape position modal X/Y buttons
+                    const axis = field.replace('shape-', '');
+                    inputId = `position-modal-${axis}`;
+                    initialValues = this.positionInitialValues;
+                    fieldKey = field; // Use 'shape-x' or 'shape-y' to match positionInitialValues keys
+                    increment = 50;
+                    roundValue = 50;
+                } else if (field === 'shape-rotation') {
+                    // Shape position modal rotation buttons
+                    inputId = 'position-modal-rotation';
+                    initialValues = this.positionInitialValues;
+                    fieldKey = field; // Use 'shape-rotation' to match positionInitialValues key
+                    increment = 15;
+                    roundValue = 15;
                 } else {
-                    // Position: use 50cm increments with smart rounding
-                    const initialValue = this.positionInitialValues[field];
-                    const isFirstAdjustment = initialValue === currentValue;
+                    inputId = `element-pos-${field}`;
+                    initialValues = this.positionInitialValues;
+                    fieldKey = field;
+                    increment = 50;
+                    roundValue = 50;
+                }
 
-                    if (isFirstAdjustment) {
-                        // Round to nearest 50
-                        if (action === 'increase') {
-                            currentValue = Math.ceil(currentValue / 50) * 50;
-                        } else {
-                            currentValue = Math.floor(currentValue / 50) * 50;
-                        }
+                const input = document.getElementById(inputId);
+                if (!input) return;
+
+                let currentValue = parseInt(input.value) || 0;
+                let initialValue = initialValues[fieldKey];
+
+                // If user manually changed the value, update initialValue to reflect that
+                if (initialValue !== null && initialValue !== currentValue) {
+                    initialValues[fieldKey] = currentValue;
+                    initialValue = currentValue;
+                }
+
+                const isFirstAdjustment = initialValue !== null && initialValue === currentValue;
+
+                if (isFirstAdjustment) {
+                    // Round to nearest increment value
+                    if (action === 'increase') {
+                        currentValue = Math.ceil(currentValue / roundValue) * roundValue;
                     } else {
-                        // Increment/decrement by 50
-                        if (action === 'increase') {
-                            currentValue += 50;
-                        } else {
-                            currentValue -= 50;
-                        }
+                        currentValue = Math.floor(currentValue / roundValue) * roundValue;
+                    }
+
+                    // Mark that we've done the first adjustment by setting to null
+                    initialValues[fieldKey] = null;
+                } else {
+                    // Increment/decrement by increment value
+                    if (action === 'increase') {
+                        currentValue += increment;
+                    } else {
+                        currentValue -= increment;
                     }
                 }
 
+                // Keep rotation in 0-360 range
+                if (field === 'rotation' || field === 'shape-rotation') {
+                    currentValue = ((currentValue % 360) + 360) % 360;
+                }
+
+                // Set flag to prevent 'input' event from overwriting our initial values
+                this.updatingFromButton = true;
                 input.value = currentValue;
+                this.updatingFromButton = false;
             });
+        });
+
+        // Listen for manual input changes to update initial values
+        ['element-pos-x', 'element-pos-y', 'element-rotation'].forEach(inputId => {
+            const input = document.getElementById(inputId);
+            if (input) {
+                input.addEventListener('input', () => {
+                    if (this.updatingFromButton) return; // Skip if button is updating
+                    const field = inputId === 'element-rotation' ? 'rotation' : inputId.replace('element-pos-', '');
+                    this.positionInitialValues[field] = parseInt(input.value) || 0;
+                });
+            }
+        });
+
+        // Listen for manual size input changes to update initial values
+        ['shape-width', 'shape-height'].forEach(inputId => {
+            const input = document.getElementById(inputId);
+            if (input) {
+                input.addEventListener('input', () => {
+                    if (this.updatingFromButton) return; // Skip if button is updating
+                    const field = inputId.replace('shape-', '');
+                    this.sizeInitialValues[field] = parseInt(input.value) || 0;
+                    // Sync to the other modal
+                    const otherInput = document.getElementById(`size-modal-${field}`);
+                    if (otherInput) otherInput.value = input.value;
+                });
+            }
+        });
+
+        // Also listen to size-modal inputs and sync back
+        ['size-modal-width', 'size-modal-height'].forEach(inputId => {
+            const input = document.getElementById(inputId);
+            if (input) {
+                input.addEventListener('input', () => {
+                    if (this.updatingFromButton) return; // Skip if button is updating
+                    const field = inputId.replace('size-modal-', '');
+                    this.sizeInitialValues[field] = parseInt(input.value) || 0;
+                    // Sync to the other modal
+                    const otherInput = document.getElementById(`shape-${field}`);
+                    if (otherInput) otherInput.value = input.value;
+                });
+            }
+        });
+
+        // Listen for manual shape position input changes to update initial values
+        ['position-modal-x', 'position-modal-y', 'position-modal-rotation'].forEach(inputId => {
+            const input = document.getElementById(inputId);
+            if (input) {
+                input.addEventListener('input', () => {
+                    if (this.updatingFromButton) return; // Skip if button is updating
+                    let field;
+                    if (inputId === 'position-modal-x') {
+                        field = 'shape-x';
+                    } else if (inputId === 'position-modal-y') {
+                        field = 'shape-y';
+                    } else {
+                        field = 'shape-rotation';
+                    }
+                    this.positionInitialValues[field] = parseInt(input.value) || 0;
+                });
+            }
         });
     },
 
@@ -605,6 +736,17 @@ const Elements = {
             lockItem.style.display = 'none';
         }
 
+        // Hide color menu item for non-colorable elements
+        const colorItem = menu.querySelector('[data-action="color"]');
+        if (colorItem) {
+            const colorableTypes = ['cone', 'ladder', 'pole', 'small-hurdle', 'ball-box'];
+            if (colorableTypes.includes(element.type)) {
+                colorItem.style.display = '';
+            } else {
+                colorItem.style.display = 'none';
+            }
+        }
+
         // Disable menu items if inherited
         const menuItems = menu.querySelectorAll('.context-menu-item');
         menuItems.forEach(item => {
@@ -630,6 +772,11 @@ const Elements = {
         if (element.inherited) return;
 
         this.contextMenuElement = element;
+
+        // Hide rotation handle while modal is open
+        if (this.rotationHandle) {
+            this.rotationHandle.style.display = 'none';
+        }
 
         // Convert board coordinates to pitch coordinates (0,0 = top-left of pitch)
         const pitchX = Math.round(element.x - AppState.pitchOffsetX);
@@ -683,6 +830,14 @@ const Elements = {
         this.render();
 
         document.getElementById('element-position-modal').classList.add('hidden');
+
+        // Clear context element
+        this.contextMenuElement = null;
+
+        // Restore rotation handle display
+        if (this.rotationHandle) {
+            this.rotationHandle.style.display = '';
+        }
     },
 
     // Show color dialog
@@ -690,10 +845,17 @@ const Elements = {
         // Don't show dialog if locked or inherited
         if (element.inherited) return;
 
+        // Only allow color for certain element types
+        const colorableTypes = ['cone', 'ladder', 'pole', 'small-hurdle', 'ball-box'];
+        if (!colorableTypes.includes(element.type)) {
+            return;
+        }
+
         this.contextMenuElement = element;
 
         const currentColor = element.color || '#ff6b35';
         document.getElementById('element-color-picker').value = currentColor;
+
         Utils.openModal('element-color-modal');
     },
 
@@ -708,6 +870,9 @@ const Elements = {
         this.render();
 
         document.getElementById('element-color-modal').classList.add('hidden');
+
+        // Clear context element
+        this.contextMenuElement = null;
     },
 
     /** Clears and re-creates all element DOM elements from AppState.elements. */
@@ -957,7 +1122,7 @@ const Elements = {
                 // 100 x 600 units
                 width = 100 * scaleX;
                 height = 600 * scaleY;
-                content = this.createLadder();
+                content = this.createLadder(element.color);
                 svg.setAttribute('viewBox', '0 0 100 600');
                 svg.setAttribute('width', width);
                 svg.setAttribute('height', height);
@@ -1100,9 +1265,10 @@ const Elements = {
     },
 
     // SVG content for ladder (100 x 600 units = 100cm x 6m, vertical, 10 rungs)
-    createLadder() {
+    createLadder(color) {
+        color = color || '#f39c12';
         return `
-            <g stroke="#f39c12" stroke-width="8" fill="none">
+            <g stroke="${color}" stroke-width="8" fill="none">
                 <line x1="10" y1="10" x2="10" y2="590"/>
                 <line x1="90" y1="10" x2="90" y2="590"/>
                 <line x1="10" y1="40" x2="90" y2="40"/>

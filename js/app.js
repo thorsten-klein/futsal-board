@@ -170,13 +170,56 @@ const Utils = {
     },
 
     /**
+     * Hides all rotation handles (for shapes and elements).
+     * Called when any modal is opened.
+     */
+    hideAllRotationHandles() {
+        // Hide shape rotation handles
+        if (typeof Shapes !== 'undefined' && Shapes.rotationHandle) {
+            Shapes.rotationHandle.style.display = 'none';
+        }
+
+        // Hide element rotation handles
+        if (typeof Elements !== 'undefined' && Elements.rotationHandle) {
+            Elements.rotationHandle.style.display = 'none';
+        }
+    },
+
+    /**
+     * Restores rotation handles if no modals are currently open.
+     * Called when a modal is closed.
+     */
+    restoreRotationHandles() {
+        // Check if any modal is still open
+        const modals = document.querySelectorAll('.modal:not(.hidden)');
+        if (modals.length > 0) {
+            // At least one modal is still open, keep handles hidden
+            return;
+        }
+
+        // No modals open, restore rotation handles
+        if (typeof Shapes !== 'undefined' && Shapes.rotationHandle) {
+            Shapes.rotationHandle.style.display = '';
+        }
+
+        if (typeof Elements !== 'undefined' && Elements.rotationHandle) {
+            Elements.rotationHandle.style.display = '';
+        }
+    },
+
+    /**
      * Opens a modal by removing the 'hidden' class and focusing the first focusable element.
+     * Automatically hides rotation handles when modal opens.
      * @param {string} id - The modal element's ID.
      */
     openModal(id) {
         const modal = document.getElementById(id);
         if (!modal) return;
         modal.classList.remove('hidden');
+
+        // Hide all rotation handles when any modal opens
+        this.hideAllRotationHandles();
+
         const focusable = modal.querySelector('input, select, textarea, button');
         if (focusable) focusable.focus();
     },
@@ -569,6 +612,7 @@ const App = {
         this.setupEscapeKey();
         this.setupScreenshot();
         this.setupBoardCanvasContextMenu();
+        this.setupModalObserver();
 
         // Initial render
         this.render();
@@ -1647,6 +1691,32 @@ const App = {
                 // Export with selected dimensions
                 await this.exportScreenshot(width, height);
             }
+        });
+    },
+
+    // Setup modal observer to automatically manage rotation handle visibility
+    setupModalObserver() {
+        // Observe all modals for class changes
+        const modals = document.querySelectorAll('.modal');
+
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                    const target = mutation.target;
+                    const isHidden = target.classList.contains('hidden');
+
+                    // If a modal was just hidden, check if we should restore rotation handles
+                    if (isHidden) {
+                        // Small delay to ensure DOM is updated
+                        setTimeout(() => Utils.restoreRotationHandles(), 10);
+                    }
+                }
+            });
+        });
+
+        // Observe each modal for class changes
+        modals.forEach(modal => {
+            observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
         });
     },
 

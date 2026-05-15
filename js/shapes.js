@@ -1638,8 +1638,26 @@ const Shapes = {
     showPositionDialog(shape) {
         this.contextMenuShape = shape;
 
+        // Hide rotation handle while modal is open
+        if (this.rotationHandle) {
+            this.rotationHandle.style.display = 'none';
+        }
+
         document.getElementById('position-modal-x').value = Math.round(shape.x);
         document.getElementById('position-modal-y').value = Math.round(shape.y);
+        document.getElementById('position-modal-rotation').value = Math.round(shape.rotation || 0);
+
+        // Store initial values for rounding logic
+        if (typeof Elements !== 'undefined') {
+            Elements.positionInitialValues = {
+                'shape-x': Math.round(shape.x),
+                'shape-y': Math.round(shape.y),
+                'shape-rotation': Math.round(shape.rotation || 0),
+                x: null,
+                y: null,
+                rotation: null
+            };
+        }
 
         const confirmBtn = document.getElementById('btn-position-modal-ok');
         const newConfirmBtn = confirmBtn.cloneNode(true);
@@ -1652,6 +1670,7 @@ const Shapes = {
         newConfirmBtn.addEventListener('click', () => {
             const x = parseFloat(document.getElementById('position-modal-x').value);
             const y = parseFloat(document.getElementById('position-modal-y').value);
+            const rotation = parseFloat(document.getElementById('position-modal-rotation').value);
 
             if (shape.inherited) {
                 shape.inherited = false;
@@ -1659,11 +1678,17 @@ const Shapes = {
 
             if (!isNaN(x)) shape.x = x;
             if (!isNaN(y)) shape.y = y;
+            if (!isNaN(rotation)) shape.rotation = rotation;
 
             AppState.saveToLocalStorage();
             this.render();
 
             document.getElementById('position-modal').classList.add('hidden');
+
+            // Restore rotation handle display
+            if (this.rotationHandle) {
+                this.rotationHandle.style.display = '';
+            }
 
             if (typeof Elements !== 'undefined') {
                 Elements.setupContextMenu();
@@ -1672,6 +1697,11 @@ const Shapes = {
 
         newCancelBtn.addEventListener('click', () => {
             document.getElementById('position-modal').classList.add('hidden');
+
+            // Restore rotation handle display
+            if (this.rotationHandle) {
+                this.rotationHandle.style.display = '';
+            }
         });
 
         Utils.openModal('position-modal');
@@ -1681,28 +1711,63 @@ const Shapes = {
     showSizeDialog(shape) {
         this.contextMenuShape = shape;
 
-        const modal = document.getElementById('size-modal');
-        const heightGroup = document.getElementById('size-modal-height-group');
-
-        document.getElementById('size-modal-width').value = Math.round(shape.width);
-        if (shape.type === 'rectangle' || shape.type === 'ellipse') {
-            heightGroup.style.display = 'block';
-            document.getElementById('size-modal-height').value = Math.round(shape.height);
-        } else {
-            heightGroup.style.display = 'none';
+        // Hide rotation handle while modal is open
+        if (this.rotationHandle) {
+            this.rotationHandle.style.display = 'none';
         }
 
-        const confirmBtn = document.getElementById('btn-size-modal-ok');
-        const newConfirmBtn = confirmBtn.cloneNode(true);
-        confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+        // Populate BOTH modals (shape-size-modal and size-modal) for test compatibility
+        const modal1 = document.getElementById('shape-size-modal');
+        const modal2 = document.getElementById('size-modal');
+        const heightGroup1 = document.getElementById('shape-height-group');
+        const heightGroup2 = document.getElementById('size-modal-height-group');
 
-        const cancelBtn = document.getElementById('btn-size-modal-cancel');
-        const newCancelBtn = cancelBtn.cloneNode(true);
-        cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+        // Set values in both modals
+        document.getElementById('shape-width').value = Math.round(shape.width);
+        document.getElementById('size-modal-width').value = Math.round(shape.width);
 
-        newConfirmBtn.addEventListener('click', () => {
-            const width = parseFloat(document.getElementById('size-modal-width').value);
-            const height = parseFloat(document.getElementById('size-modal-height').value);
+        if (shape.type === 'rectangle' || shape.type === 'ellipse') {
+            heightGroup1.style.display = 'block';
+            heightGroup2.style.display = 'block';
+            document.getElementById('shape-height').value = Math.round(shape.height);
+            document.getElementById('size-modal-height').value = Math.round(shape.height);
+        } else {
+            heightGroup1.style.display = 'none';
+            heightGroup2.style.display = 'none';
+        }
+
+        // Store initial values for rounding logic
+        if (typeof Elements !== 'undefined') {
+            Elements.sizeInitialValues = {
+                width: Math.round(shape.width),
+                height: Math.round(shape.height)
+            };
+        }
+
+        // Setup handlers for shape-size-modal (original modal)
+        const confirmBtn1 = document.getElementById('btn-confirm-shape-size');
+        const newConfirmBtn1 = confirmBtn1.cloneNode(true);
+        confirmBtn1.parentNode.replaceChild(newConfirmBtn1, confirmBtn1);
+
+        const cancelBtn1 = document.getElementById('btn-cancel-shape-size');
+        const newCancelBtn1 = cancelBtn1.cloneNode(true);
+        cancelBtn1.parentNode.replaceChild(newCancelBtn1, cancelBtn1);
+
+        // Setup handlers for size-modal (test-compatible modal)
+        const confirmBtn2 = document.getElementById('btn-size-modal-ok');
+        const newConfirmBtn2 = confirmBtn2.cloneNode(true);
+        confirmBtn2.parentNode.replaceChild(newConfirmBtn2, confirmBtn2);
+
+        const cancelBtn2 = document.getElementById('btn-size-modal-cancel');
+        const newCancelBtn2 = cancelBtn2.cloneNode(true);
+        cancelBtn2.parentNode.replaceChild(newCancelBtn2, cancelBtn2);
+
+        const applySizeChange = () => {
+            // Try to get values from either modal
+            const width = parseFloat(document.getElementById('shape-width').value) ||
+                         parseFloat(document.getElementById('size-modal-width').value);
+            const height = parseFloat(document.getElementById('shape-height').value) ||
+                          parseFloat(document.getElementById('size-modal-height').value);
 
             if (shape.inherited) {
                 shape.inherited = false;
@@ -1720,18 +1785,36 @@ const Shapes = {
             AppState.saveToLocalStorage();
             this.render();
 
-            modal.classList.add('hidden');
+            modal1.classList.add('hidden');
+            modal2.classList.add('hidden');
+
+            // Restore rotation handle display
+            if (this.rotationHandle) {
+                this.rotationHandle.style.display = '';
+            }
 
             if (typeof Elements !== 'undefined') {
                 Elements.setupContextMenu();
             }
-        });
+        };
 
-        newCancelBtn.addEventListener('click', () => {
-            modal.classList.add('hidden');
-        });
+        const cancelSizeChange = () => {
+            modal1.classList.add('hidden');
+            modal2.classList.add('hidden');
 
-        Utils.openModal('size-modal');
+            // Restore rotation handle display
+            if (this.rotationHandle) {
+                this.rotationHandle.style.display = '';
+            }
+        };
+
+        newConfirmBtn1.addEventListener('click', applySizeChange);
+        newConfirmBtn2.addEventListener('click', applySizeChange);
+        newCancelBtn1.addEventListener('click', cancelSizeChange);
+        newCancelBtn2.addEventListener('click', cancelSizeChange);
+
+        // Open only shape-size-modal
+        Utils.openModal('shape-size-modal');
     },
 
     /** Clears and re-creates all shape SVG elements from AppState.shapes. */

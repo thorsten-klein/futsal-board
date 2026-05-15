@@ -2944,6 +2944,7 @@ body.touch-mode.show-touch-debug .touch-overlay {
                     <div class="color-preset" style="background: #ffffff; border: 1px solid #ccc" data-color="#ffffff"></div>
                     <div class="color-preset" style="background: #000000" data-color="#000000"></div>
                     <div class="color-preset" style="background: #FFD700" data-color="#FFD700"></div>
+                    <div class="color-preset" style="background: #f39c12" data-color="#f39c12"></div>
                     <div class="color-preset" style="background: #e74c3c" data-color="#e74c3c"></div>
                     <div class="color-preset" style="background: #2ecc71" data-color="#2ecc71"></div>
                 </div>
@@ -3017,11 +3018,19 @@ body.touch-mode.show-touch-debug .touch-overlay {
                 <h2>Shape Size</h2>
                 <div class="form-group">
                     <label>Width (cm):</label>
-                    <input type="number" name="width" id="size-modal-width" class="form-input" step="1" min="50">
+                    <div class="position-input-group">
+                        <button class="position-btn" data-action="decrease" data-field="size-modal-width">-</button>
+                        <input type="number" name="width" id="size-modal-width" class="form-input position-input" step="1" min="50">
+                        <button class="position-btn" data-action="increase" data-field="size-modal-width">+</button>
+                    </div>
                 </div>
                 <div class="form-group" id="size-modal-height-group">
                     <label>Height (cm):</label>
-                    <input type="number" name="height" id="size-modal-height" class="form-input" step="1" min="50">
+                    <div class="position-input-group">
+                        <button class="position-btn" data-action="decrease" data-field="size-modal-height">-</button>
+                        <input type="number" name="height" id="size-modal-height" class="form-input position-input" step="1" min="50">
+                        <button class="position-btn" data-action="increase" data-field="size-modal-height">+</button>
+                    </div>
                 </div>
                 <div class="modal-buttons">
                     <button id="btn-size-modal-cancel" class="btn btn-secondary">Cancel</button>
@@ -3036,11 +3045,27 @@ body.touch-mode.show-touch-debug .touch-overlay {
                 <h2>Shape Position</h2>
                 <div class="form-group">
                     <label>X Position (cm):</label>
-                    <input type="number" name="x" id="position-modal-x" class="form-input" step="1">
+                    <div class="position-input-group">
+                        <button class="position-btn" data-action="decrease" data-field="shape-x">-</button>
+                        <input type="number" name="x" id="position-modal-x" class="form-input position-input" step="1">
+                        <button class="position-btn" data-action="increase" data-field="shape-x">+</button>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label>Y Position (cm):</label>
-                    <input type="number" name="y" id="position-modal-y" class="form-input" step="1">
+                    <div class="position-input-group">
+                        <button class="position-btn" data-action="decrease" data-field="shape-y">-</button>
+                        <input type="number" name="y" id="position-modal-y" class="form-input position-input" step="1">
+                        <button class="position-btn" data-action="increase" data-field="shape-y">+</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Rotation (degrees):</label>
+                    <div class="position-input-group">
+                        <button class="position-btn" data-action="decrease" data-field="shape-rotation">-</button>
+                        <input type="number" name="rotation" id="position-modal-rotation" class="form-input position-input" step="1" min="0" max="360">
+                        <button class="position-btn" data-action="increase" data-field="shape-rotation">+</button>
+                    </div>
                 </div>
                 <div class="modal-buttons">
                     <button id="btn-position-modal-cancel" class="btn btn-secondary">Cancel</button>
@@ -3287,7 +3312,7 @@ body.touch-mode.show-touch-debug .touch-overlay {
                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
                     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
                 </svg>
-                Copy to Clipboard
+                Copy to Clipboard (4500×2500)
             </div>
             <div class="context-menu-item" data-action="screenshot" data-width="4500" data-height="2500">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

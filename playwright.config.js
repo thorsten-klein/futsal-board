@@ -15,14 +15,24 @@ export default defineConfig({
     use: {
         // Open the local HTML file directly — no server needed
         baseURL: 'file://' + path.resolve(__dirname, 'index.html'),
-        channel: 'chrome',    // use system Chrome (no download needed)
         headless: true,
         viewport: { width: 1400, height: 900 },
         // Give the app 2s to finish initialising after page load
         actionTimeout: 8_000,
     },
     projects: [
-        { name: 'chromium', use: { ...devices['Desktop Chrome'], channel: 'chrome' } },
+        {
+            name: 'chromium',
+            use: { ...devices['Desktop Chrome'], channel: 'chrome' } // use system Chrome (no download needed)
+        },
+        // {
+        //     name: 'firefox',
+        //     use: { ...devices['Desktop Firefox'] }
+        // },
+        // {
+        //     name: 'webkit',
+        //     use: { ...devices['Desktop Safari'] }
+        // },
     ],
     // Snapshot dir for visual regression baselines
     snapshotDir: './tests/snapshots',

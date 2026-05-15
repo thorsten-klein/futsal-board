@@ -227,7 +227,7 @@ test.describe('Screenshot Quality Menu', () => {
             await page.waitForTimeout(200);
 
             // Select quality (scope to screenshot menu)
-            await page.locator(`#screenshot-menu [data-width="${quality.width}"][data-height="${quality.height}"]`).click();
+            await page.locator(`#screenshot-menu [data-action="screenshot"][data-width="${quality.width}"][data-height="${quality.height}"]`).click();
             await page.waitForTimeout(500);
 
             // Verify toast
