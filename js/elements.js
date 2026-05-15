@@ -94,6 +94,11 @@ const Elements = {
                     width = 100 * scaleX;
                     height = 60 * scaleY;
                     break;
+                case 'ball-box':
+                    // 150cm x 150cm
+                    width = 150 * scaleX;
+                    height = 150 * scaleY;
+                    break;
             }
 
             if (width && height) {
@@ -754,7 +759,8 @@ const Elements = {
             'rebounce': { width: 50, height: 400 },
             'small-wall': { width: 50, height: 100 },
             'big-wall': { width: 50, height: 200 },
-            'small-hurdle': { width: 100, height: 60 }
+            'small-hurdle': { width: 100, height: 60 },
+            'ball-box': { width: 150, height: 150 }
         };
         return dimensions[type] || { width: 100, height: 100 };
     },
@@ -818,7 +824,8 @@ const Elements = {
                     'small-goal': '134',    // 34 + 100
                     'goal': '135',          // 35 + 100
                     'pole': '136',          // 36 + 100
-                    'small-hurdle': '137'   // 37 + 100
+                    'small-hurdle': '137',  // 37 + 100
+                    'ball-box': '130'       // 30 + 100
                 };
                 overlay.style.zIndex = elementOverlayZIndex[element.type] || '130';
                 overlay.style.pointerEvents = 'auto';
@@ -877,7 +884,8 @@ const Elements = {
             'small-goal': '34',
             'goal': '35',
             'pole': '36',
-            'small-hurdle': '37'    // Highest element
+            'small-hurdle': '37',
+            'ball-box': '30'        // Same as cone
         };
         svg.style.zIndex = elementZIndex[element.type] || '30';
 
@@ -995,6 +1003,17 @@ const Elements = {
                 height = 60 * scaleY;
                 content = this.createSmallHurdle(element.color);
                 svg.setAttribute('viewBox', '0 0 100 60');
+                svg.setAttribute('width', width);
+                svg.setAttribute('height', height);
+                svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
+                svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
+                break;
+            case 'ball-box':
+                // 150cm x 150cm
+                width = 150 * scaleX;
+                height = 150 * scaleY;
+                content = this.createBallBox(element.color);
+                svg.setAttribute('viewBox', '0 0 150 150');
                 svg.setAttribute('width', width);
                 svg.setAttribute('height', height);
                 svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
@@ -1146,6 +1165,37 @@ const Elements = {
                 <rect x="15" y="10" width="8" height="28" fill="${color}" stroke="#000" stroke-width="2" rx="2"/>
                 <rect x="77" y="10" width="8" height="28" fill="${color}" stroke="#000" stroke-width="2" rx="2"/>
                 <rect x="10" y="5" width="80" height="12" fill="${color}" stroke="#000" stroke-width="2" rx="3"/>
+            </g>
+        `;
+    },
+
+    // SVG content for ball box (150 x 150 units = 150cm x 150cm square with 6 balls)
+    createBallBox(color) {
+        color = color || '#ffffff'; // White for balls by default
+        const ballColor = color; // Use the element color for balls
+
+        // Create ball SVG using the same structure as in balls.js
+        // Ball size: 60cm diameter (same as regular balls), scale = 0.063 (60/952)
+        const createBall = (cx, cy, ballColor) => {
+            return `
+                <g transform="translate(${cx - 30}, ${cy - 30}) scale(0.063, 0.063)">
+                    <circle r="476" cx="476" cy="476" fill="${ballColor}" />
+                    <path d="M813 139A475 475 0 000 476a474 474 0 00476 476 474 474 0 00476-476 474 474 0 00-139-337zm-600-31l12-10a457 457 0 01370-60c-14 6-33 18-65 45a393 393 0 00-182 22c-31 11-55 23-71 33l-74-25c3 1 8-4 10-5zm433 119l-81 222-196 37-161-166c11-76 63-143 63-143s34-25 88-44a403 403 0 01174-20l113 114zM39 460c-5 32-6 66-3 100l-9-20a451 451 0 0136-252c-3 30-2 61 0 85-11 28-19 57-24 87zm40 173a418 418 0 018-239c33-28 77-44 101-52l158 164-16 179-155 52c-39-29-72-68-96-104zm470 260c-34 22-121 28-157 29a451 451 0 01-200-92c0-1-4-49-4-66l156-52 181 78 25 103h-1zm300-158c-27 38-59 75-98 102-36 25-85 34-128 41-3 1-44 8-45 6l-25-103 128-132 168-15 8 89-8 12zm3-135l-2 3-168 16-90-158 82-223 115 7a366 366 0 01118 169 434 434 0 01-55 186zm60-250a396 396 0 00-108-131c-5-25-19-65-57-107l2 2 7 5a459 459 0 01156 230v1z"
+                          fill="#000" opacity="1"/>
+                </g>
+            `;
+        };
+
+        // Messy ball positions (not in a grid, overlapping slightly for a realistic pile)
+        return `
+            <g>
+                <rect x="5" y="5" width="140" height="140" fill="none" stroke="#8B4513" stroke-width="4" rx="3"/>
+                ${createBall(55, 40, ballColor)}
+                ${createBall(95, 55, ballColor)}
+                ${createBall(40, 80, ballColor)}
+                ${createBall(80, 90, ballColor)}
+                ${createBall(110, 100, ballColor)}
+                ${createBall(60, 115, ballColor)}
             </g>
         `;
     },
