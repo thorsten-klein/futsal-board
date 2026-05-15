@@ -1632,6 +1632,7 @@ const App = {
             const item = e.target.closest('.context-menu-item');
             if (!item) return;
 
+            const action = item.dataset.action;
             const width = parseInt(item.dataset.width);
             const height = parseInt(item.dataset.height);
 
@@ -1639,8 +1640,13 @@ const App = {
             screenshotMenu.classList.add('hidden');
             screenshotMenu.style.display = 'none';
 
-            // Export with selected dimensions
-            await this.exportScreenshot(width, height);
+            // Handle action
+            if (action === 'copy-to-clipboard') {
+                await this.copyScreenshotToClipboard(width, height);
+            } else {
+                // Export with selected dimensions
+                await this.exportScreenshot(width, height);
+            }
         });
     },
 
@@ -1798,6 +1804,145 @@ const App = {
         } catch (error) {
             console.error('Screenshot export failed:', error);
             Utils.showMessage('Failed to export screenshot: ' + error.message, 'Export Error');
+        }
+    },
+
+    // Copy screenshot to clipboard with specified dimensions
+    async copyScreenshotToClipboard(targetWidth, targetHeight) {
+        try {
+            // Check if Clipboard API is supported
+            if (!navigator.clipboard || !navigator.clipboard.write) {
+                Utils.showMessage('Clipboard API not supported in this browser', 'Copy Error');
+                return;
+            }
+
+            const boardContainer = document.querySelector('.board-container');
+            const boardCanvas   = document.getElementById('board-canvas');
+
+            if (!boardCanvas || !boardContainer) {
+                Utils.showMessage('Board not found', 'Copy Error');
+                return;
+            }
+
+            // Load html-to-image (needed for the entity layer)
+            if (typeof htmlToImage === 'undefined') {
+                const script = document.createElement('script');
+                script.src = 'ext/html-to-image.js';
+                document.head.appendChild(script);
+                await new Promise((resolve, reject) => {
+                    script.onload = resolve;
+                    script.onerror = reject;
+                });
+            }
+
+            // Use target dimensions for export
+            const canvasRect = boardCanvas.getBoundingClientRect();
+            const w = targetWidth;
+            const h = targetHeight;
+            const scale = w / canvasRect.width;
+
+            const exportCanvas = document.createElement('canvas');
+            exportCanvas.width  = w;
+            exportCanvas.height = h;
+            const ctx = exportCanvas.getContext('2d');
+
+            // Helper: load any src into a resolved HTMLImageElement
+            const loadImg = (src) => new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload  = () => resolve(img);
+                img.onerror = reject;
+                img.src = src;
+            });
+
+            // ── Helper: serialise an SVG layer and stamp it onto the canvas ──
+            const drawSvgLayer = async (svgEl) => {
+                if (!svgEl) return;
+                const clone = svgEl.cloneNode(true);
+                clone.setAttribute('width',  String(w));
+                clone.setAttribute('height', String(h));
+                clone.setAttribute('xmlns',  'http://www.w3.org/2000/svg');
+                const svgStr = new XMLSerializer().serializeToString(clone);
+                const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
+                ctx.drawImage(await loadImg(dataUrl), 0, 0, w, h);
+            };
+
+            // ── Layer 1: parquet background ───────────────────────────────────
+            ctx.fillStyle = '#d9a66a';
+            ctx.fillRect(0, 0, w, h);
+            {
+                const parquetSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="120"><rect width="600" height="120" fill="#d9a66a"/><g stroke="#7a5832" stroke-width="0.6"><g fill="#e6bb7f"><rect x="0" y="0" width="300" height="12"/><rect x="300" y="0" width="300" height="12"/></g><g fill="#ebc996"><rect x="-40" y="12" width="300" height="12"/><rect x="260" y="12" width="300" height="12"/><rect x="560" y="12" width="300" height="12"/></g><g fill="#f0d7a8"><rect x="-120" y="24" width="300" height="12"/><rect x="180" y="24" width="300" height="12"/><rect x="480" y="24" width="300" height="12"/></g><g fill="#e4c08d"><rect x="-200" y="36" width="300" height="12"/><rect x="100" y="36" width="300" height="12"/><rect x="400" y="36" width="300" height="12"/></g><g fill="#efd3a3"><rect x="-80" y="48" width="300" height="12"/><rect x="220" y="48" width="300" height="12"/><rect x="520" y="48" width="300" height="12"/></g><g fill="#e9c894"><rect x="-160" y="60" width="300" height="12"/><rect x="140" y="60" width="300" height="12"/><rect x="440" y="60" width="300" height="12"/></g><g fill="#f2deb5"><rect x="-20" y="72" width="300" height="12"/><rect x="280" y="72" width="300" height="12"/></g><g fill="#e3c18c"><rect x="-100" y="84" width="300" height="12"/><rect x="200" y="84" width="300" height="12"/><rect x="500" y="84" width="300" height="12"/></g><g fill="#edd2a6"><rect x="-220" y="96" width="300" height="12"/><rect x="80" y="96" width="300" height="12"/><rect x="380" y="96" width="300" height="12"/></g><g fill="#e7c795"><rect x="-60" y="108" width="300" height="12"/><rect x="240" y="108" width="300" height="12"/><rect x="540" y="108" width="300" height="12"/></g></g></svg>`;
+                const parquetUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(parquetSvg);
+                try {
+                    const parquetImg = await loadImg(parquetUrl);
+                    const tileH = Math.round(h / 5);
+                    const tileW = tileH * 5;
+                    let startX = ((w / 2 - tileW / 2) % tileW + tileW) % tileW - tileW;
+                    let startY = ((h / 2 - tileH / 2) % tileH + tileH) % tileH - tileH;
+                    for (let x = startX; x < w; x += tileW) {
+                        for (let y = startY; y < h; y += tileH) {
+                            ctx.drawImage(parquetImg, x, y, tileW, tileH);
+                        }
+                    }
+                } catch (_) { /* keep solid colour fallback */ }
+            }
+
+            // ── Layer 2: court SVG ───────────────────────────────────────────
+            {
+                const courtEl = document.getElementById('court-svg');
+                const svgText = new XMLSerializer().serializeToString(courtEl);
+                const sized = svgText.replace(
+                    /(<svg\b[^>]*?)(\s*\/>|>)/,
+                    `$1 width="${w}" height="${h}"$2`
+                );
+                const courtUrl = 'data:image/svg+xml;charset=utf-8,' +
+                                 encodeURIComponent(sized);
+                ctx.globalAlpha = 0.8;
+                ctx.drawImage(await loadImg(courtUrl), 0, 0, w, h);
+                ctx.globalAlpha = 1;
+            }
+
+            // ── Layer 3: in-progress drawings ────────────────────────────────
+            await drawSvgLayer(document.getElementById('drawing-layer'));
+
+            // ── Layer 4: completed paths / arrows ────────────────────────────
+            await drawSvgLayer(document.getElementById('paths-layer'));
+
+            // ── Layer 5: players, balls, plates, elements, shapes (DOM) ──────
+            const playersLayer = document.getElementById('players-layer');
+            if (playersLayer) {
+                const opts = {
+                    backgroundColor: null,
+                    skipFonts:       true,
+                };
+                if (!App._htmlToImageWarmed) {
+                    await htmlToImage.toCanvas(playersLayer, { ...opts, pixelRatio: 0.1 });
+                    App._htmlToImageWarmed = true;
+                }
+
+                const entityCanvas = await htmlToImage.toCanvas(playersLayer, {
+                    ...opts, pixelRatio: scale,
+                });
+
+                const boardArea  = document.getElementById('board-area');
+                const cropX = Math.round(parseFloat(boardArea.style.left || '0') * scale);
+                const cropY = Math.round(parseFloat(boardArea.style.top  || '0') * scale);
+                ctx.drawImage(entityCanvas, cropX, cropY, w, h, 0, 0, w, h);
+            }
+
+            // ── Copy to clipboard ──────────────────────────────────────────────
+            const blob = await new Promise(resolve => exportCanvas.toBlob(resolve, 'image/png'));
+
+            await navigator.clipboard.write([
+                new ClipboardItem({
+                    'image/png': blob
+                })
+            ]);
+
+            Utils.showToast(`Copied to clipboard (${w}×${h})`, 'success');
+
+        } catch (error) {
+            console.error('Copy to clipboard failed:', error);
+            Utils.showMessage('Failed to copy to clipboard: ' + error.message, 'Copy Error');
         }
     },
 
