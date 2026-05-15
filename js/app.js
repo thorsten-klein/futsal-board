@@ -1163,6 +1163,16 @@ const App = {
                 e.preventDefault();
                 AppState.redo();
             }
+            // Ctrl+S / Cmd+S for save
+            else if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                Storage.exportWorkbook(false);
+            }
+            // Ctrl+O / Cmd+O for open
+            else if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
+                e.preventDefault();
+                Storage.importWorkbook();
+            }
         });
     },
 

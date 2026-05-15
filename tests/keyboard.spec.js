@@ -63,4 +63,92 @@ test.describe('Keyboard shortcuts', () => {
         await page.keyboard.press('Control+v');
         await expect(page.locator('[data-ball]')).toHaveCount(2);
     });
+
+    test('Ctrl+S triggers save (keyboard shortcut)', async ({ page }) => {
+        // Add some content to the board
+        await addBall(page);
+        await expect(page.locator('[data-ball]')).toHaveCount(1);
+
+        // Mock the File System Access API if available
+        const saveTriggered = await page.evaluate(async () => {
+            let triggered = false;
+
+            // If File System Access API is available, mock it
+            if ('showSaveFilePicker' in window) {
+                window.showSaveFilePicker = async () => {
+                    triggered = true;
+                    throw new Error('AbortError'); // Simulate user canceling
+                };
+            } else {
+                // For browsers without File System Access API, check if download was triggered
+                const originalCreateElement = document.createElement;
+                document.createElement = function(tagName) {
+                    const element = originalCreateElement.call(document, tagName);
+                    if (tagName === 'a' && element.download) {
+                        triggered = true;
+                    }
+                    return element;
+                };
+            }
+
+            // Press Ctrl+S
+            const event = new KeyboardEvent('keydown', {
+                key: 's',
+                ctrlKey: true,
+                bubbles: true,
+                cancelable: true
+            });
+            document.dispatchEvent(event);
+
+            // Wait a bit for async operations
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            return triggered;
+        });
+
+        // Verify that save was triggered
+        expect(saveTriggered).toBe(true);
+    });
+
+    test('Ctrl+O triggers open workbook (keyboard shortcut)', async ({ page }) => {
+        // Mock the File System Access API or file input click
+        const openTriggered = await page.evaluate(async () => {
+            let triggered = false;
+
+            // If File System Access API is available, mock it
+            if ('showOpenFilePicker' in window) {
+                window.showOpenFilePicker = async () => {
+                    triggered = true;
+                    throw new Error('AbortError'); // Simulate user canceling
+                };
+            } else {
+                // For browsers without File System Access API, check if file input was clicked
+                const fileInput = document.getElementById('import-workbook-input');
+                if (fileInput) {
+                    const originalClick = fileInput.click;
+                    fileInput.click = function() {
+                        triggered = true;
+                        // Don't actually click to avoid opening file picker
+                    };
+                }
+            }
+
+            // Press Ctrl+O
+            const event = new KeyboardEvent('keydown', {
+                key: 'o',
+                ctrlKey: true,
+                bubbles: true,
+                cancelable: true
+            });
+            document.dispatchEvent(event);
+
+            // Wait a bit for async operations
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            return triggered;
+        });
+
+        // Verify that open was triggered
+        expect(openTriggered).toBe(true);
+    });
 });
