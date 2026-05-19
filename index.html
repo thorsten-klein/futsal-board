@@ -1693,6 +1693,64 @@ body.touch-mode.show-touch-debug .touch-overlay {
     transform: scale(0.95);
 }
 
+.board-rotation-control {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+    border-radius: 8px;
+    border: 1px solid #dee2e6;
+}
+
+.board-rotation-control label {
+    font-size: 0.9rem;
+    color: #2c3e50;
+    font-weight: 500;
+    user-select: none;
+    cursor: default;
+}
+
+.board-rotation-control #board-rotation-display {
+    font-weight: 700;
+    color: #2980b9;
+}
+
+.rotation-buttons-group {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.rotation-btn {
+    width: 50px;
+    padding: 0.4rem 0.2rem;
+    border: 1.5px solid #4facfe;
+    background: linear-gradient(135deg, #f0f7ff, #e8f4fd);
+    color: #2980b9;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.rotation-btn:hover {
+    background: linear-gradient(135deg, #4facfe, #2980b9);
+    color: white;
+    transform: scale(1.05);
+    box-shadow: 0 3px 8px rgba(79, 172, 254, 0.4);
+}
+
+.rotation-btn:active {
+    transform: scale(0.95);
+}
+
 .animation-toggles {
     display: flex;
     flex-direction: column;
@@ -1876,6 +1934,144 @@ body.touch-mode.show-touch-debug .touch-overlay {
     border-color: #4facfe;
     background: linear-gradient(135deg, #f0f7ff, #e8f4fd);
     box-shadow: 0 2px 6px rgba(79, 172, 254, 0.15);
+}
+
+.boards-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid transparent;
+    border-image: linear-gradient(90deg, #4facfe, #2a5298) 1;
+}
+
+.boards-header h3 {
+    margin: 0;
+}
+
+.boards-header-actions {
+    display: flex;
+    gap: 2px;
+}
+
+.boards-search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.boards-search-icon {
+    position: absolute;
+    left: 8px;
+    width: 15px;
+    height: 15px;
+    color: #95a5a6;
+    pointer-events: none;
+    flex-shrink: 0;
+}
+
+.boards-search-input {
+    width: 100%;
+    padding: 6px 28px 6px 30px;
+    border: 1.5px solid #dde3ec;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    background: #fafbfc;
+    color: #2c3e50;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    box-sizing: border-box;
+}
+
+.boards-search-input:focus {
+    outline: none;
+    border-color: #4facfe;
+    box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.18);
+    background: #fff;
+}
+
+.boards-search-clear {
+    position: absolute;
+    right: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: #95a5a6;
+    border-radius: 3px;
+    transition: color 0.15s;
+}
+
+.boards-search-clear:hover {
+    color: #2c3e50;
+}
+
+.boards-search-clear svg {
+    width: 12px;
+    height: 12px;
+}
+
+.boards-search-clear.hidden {
+    display: none;
+}
+
+.board-item-name mark {
+    background: #fff3cd;
+    color: #2c3e50;
+    border-radius: 2px;
+    padding: 0 1px;
+}
+
+.board-search-empty {
+    padding: 12px 8px;
+    font-size: 0.85rem;
+    color: #95a5a6;
+    text-align: center;
+    list-style: none;
+}
+
+.btn-icon-small {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    border-radius: 5px;
+    cursor: pointer;
+    color: #7f8c8d;
+    transition: background 0.15s, color 0.15s;
+}
+
+.btn-icon-small svg {
+    width: 14px;
+    height: 14px;
+}
+
+.btn-icon-small:hover {
+    background: #e8f4fd;
+    color: #2980b9;
+}
+
+.board-move-buttons {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.board-move-buttons .btn {
+    flex: 1;
+    gap: 4px;
+    font-size: 0.8rem;
+    padding: 6px 8px;
 }
 
 .boards-list {
@@ -2495,9 +2691,38 @@ body.touch-mode.show-touch-debug .touch-overlay {
                 <!-- Tab Content: Workbook -->
                 <div class="tab-content" id="tab-workbook">
                     <div class="tool-section">
-                        <h3>Boards</h3>
+                        <div class="boards-header">
+                            <h3>Boards</h3>
+                            <div class="boards-header-actions">
+                                <button id="btn-expand-all-boards" class="btn-icon-small" title="Expand all boards">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/><polyline points="6 4 12 10 18 4"/></svg>
+                                </button>
+                                <button id="btn-collapse-all-boards" class="btn-icon-small" title="Collapse all boards">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/><polyline points="18 20 12 14 6 20"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="boards-search-wrap">
+                            <svg class="boards-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                            </svg>
+                            <input id="boards-search" type="text" class="boards-search-input" placeholder="Search boards…" autocomplete="off">
+                            <button id="boards-search-clear" class="boards-search-clear hidden" title="Clear search">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
                         <div id="boards-list" class="boards-list">
                             <!-- Boards will be dynamically added here -->
+                        </div>
+                        <div class="board-move-buttons">
+                            <button id="btn-move-board-up" class="btn btn-secondary" title="Move board up" disabled>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg>
+                                Move up
+                            </button>
+                            <button id="btn-move-board-down" class="btn btn-secondary" title="Move board down" disabled>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                                Move down
+                            </button>
                         </div>
                         <button id="btn-add-board" class="btn btn-primary btn-full">
                             <svg width="28" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -2512,6 +2737,14 @@ body.touch-mode.show-touch-debug .touch-overlay {
                 <div class="tab-content" id="tab-settings">
                     <div class="tool-section">
                         <h3>Board Settings</h3>
+                        <div class="board-rotation-control">
+                            <label>Board Rotation: <span id="board-rotation-display">0°</span></label>
+                            <div class="rotation-buttons-group">
+                                <button class="rotation-btn" id="btn-rotate-left" title="Rotate left 90°">⟲ 90°</button>
+                                <button class="rotation-btn" id="btn-rotate-right" title="Rotate right 90°">⟳ 90°</button>
+                                <button class="rotation-btn" id="btn-reset-rotation" title="Reset to 0°">Reset</button>
+                            </div>
+                        </div>
                         <div class="animation-toggles">
                             <label class="toggle-option">
                                 <input type="checkbox" id="animation-show-paths" checked>
@@ -3148,6 +3381,29 @@ body.touch-mode.show-touch-debug .touch-overlay {
 
         <!-- Board Canvas Context Menu (right-click on empty board space) -->
         <div id="board-canvas-context-menu" class="context-menu hidden">
+            <div class="context-menu-item disabled" data-action="current-angle" style="cursor: default; pointer-events: none;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                    <line x1="4" y1="20" x2="20" y2="20"/>
+                    <line x1="4" y1="20" x2="17" y2="9"/>
+                    <path d="M 14 20 A 10 10 0 0 1 12.66 15" stroke-dasharray="1,2" stroke-width="1.5"/>
+                </svg>
+                <span id="board-angle-display">Current Rotation: 0°</span>
+            </div>
+            <div class="context-menu-item" data-action="rotate-left">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M2.5 2v6h6"/>
+                    <path d="M2.66 15.57a10 10 0 1 0 .57-8.38L2.5 8"/>
+                </svg>
+                Rotate Board Left
+            </div>
+            <div class="context-menu-item" data-action="rotate-right">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21.5 2v6h-6"/>
+                    <path d="M21.34 15.57a10 10 0 1 1-.57-8.38L21.5 8"/>
+                </svg>
+                Rotate Board Right
+            </div>
+            <div class="context-menu-divider"></div>
             <div class="context-menu-item" data-action="reset-to-parent">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="1 4 1 10 7 10"/>

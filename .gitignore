@@ -4,3 +4,4 @@ playwright-report/
 tests/snapshots/
 .nyc_output/
 coverage/
+test_results/

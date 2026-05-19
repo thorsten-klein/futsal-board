@@ -232,14 +232,12 @@ const Plates = {
                         AppState.draggedPlate = plate;
                         AppState.updatePositionDisplay(plate.x, plate.y, plate, 'plate');
 
-                        const rect = AppState.canvas.getBoundingClientRect();
-                        const scaleX = AppState.boardWidth / rect.width;
-                        const scaleY = AppState.boardHeight / rect.height;
-
                         // Calculate drag offset to prevent jump when dragging from edge
+                        // Use screenToBoardCoords to account for rotation
+                        const boardCoords = Utils.screenToBoardCoords(e.clientX, e.clientY);
                         AppState.dragOffset = {
-                            x: (e.clientX - rect.left) * scaleX - plate.x,
-                            y: (e.clientY - rect.top)  * scaleY - plate.y
+                            x: boardCoords.x - plate.x,
+                            y: boardCoords.y - plate.y
                         };
                     }
 
@@ -266,10 +264,18 @@ const Plates = {
             selectedKey: 'selectedPlate',
             type: 'plate',
             updateDOM(el, x, y, pxW, pxH) {
-                const pxX = x * (pxW / AppState.boardWidth);
-                const pxY = y * (pxH / AppState.boardHeight);
-                const w = 60 * (pxW / AppState.boardWidth);
-                const h = 60 * (pxH / AppState.boardHeight);
+                // Use canvas dimensions (not getBoundingClientRect) to match initial positioning
+                const canvasWidth = AppState.canvas.width;
+                const canvasHeight = AppState.canvas.height;
+                const scaleX = canvasWidth / AppState.boardWidth;
+                const scaleY = canvasHeight / AppState.boardHeight;
+                const positionScale = Math.min(scaleX, scaleY);
+                const sizeScale = AppState.referenceScale || positionScale;
+
+                const pxX = x * positionScale;
+                const pxY = y * positionScale;
+                const w = 60 * sizeScale;
+                const h = 60 * sizeScale;
                 el.style.left = pxX + 'px';
                 el.style.top  = pxY + 'px';
                 el.style.transform = `translate(${-w/2}px, ${-h/2}px)`;
@@ -550,11 +556,17 @@ const Plates = {
 
             // Add a larger transparent hit area in touch mode
             if (document.body.classList.contains('touch-mode')) {
-                const canvasRect = AppState.canvas.getBoundingClientRect();
+                // Use canvas.width/height (not getBoundingClientRect) to match plate SVG positioning
+                const canvasWidth = AppState.canvas.width;
+                const canvasHeight = AppState.canvas.height;
+                const scaleX = canvasWidth / AppState.boardWidth;
+                const scaleY = canvasHeight / AppState.boardHeight;
+                const positionScale = Math.min(scaleX, scaleY);
+
                 const overlay = document.createElement('div');
                 overlay.className = 'touch-overlay';
-                overlay.style.left = (plate.x * (canvasRect.width / AppState.boardWidth)) + 'px';
-                overlay.style.top  = (plate.y * (canvasRect.height / AppState.boardHeight)) + 'px';
+                overlay.style.left = (plate.x * positionScale) + 'px';
+                overlay.style.top  = (plate.y * positionScale) + 'px';
                 overlay.style.zIndex = '120'; // Plate overlay = visual z-index (20) + 100
                 overlay.style.pointerEvents = 'auto';
                 overlay.dataset.plate = plate.id;
@@ -567,19 +579,26 @@ const Plates = {
 
     // Create SVG for plate on board
     createPlateElementSvg(plate) {
-        const canvasRect = AppState.canvas.getBoundingClientRect();
+        // Use canvas.width (not getBoundingClientRect) to get untransformed size
+        const canvasWidth = AppState.canvas.width;
+        const canvasHeight = AppState.canvas.height;
 
-        // Scale based on actual rendered canvas size
-        const scaleX = canvasRect.width / AppState.boardWidth;
-        const scaleY = canvasRect.height / AppState.boardHeight;
+        // For POSITION, use current canvas scale
+        const scaleX = canvasWidth / AppState.boardWidth;
+        const scaleY = canvasHeight / AppState.boardHeight;
+        const positionScale = Math.min(scaleX, scaleY);
 
-        // Position relative to players-layer (which is already positioned to match canvas)
-        const x = plate.x * scaleX;
-        const y = plate.y * scaleY;
+        // For SIZE, use reference scale (from 0°) directly
+        // This makes plates scale proportionally with the board layer
+        const sizeScale = AppState.referenceScale || positionScale;
 
+        const x = plate.x * positionScale;
+        const y = plate.y * positionScale;
+
+        // For circular elements, use the uniform scale to maintain aspect ratio
         // 30cm radius * 2 = 60cm diameter
-        const width = 30 * scaleX * 2;
-        const height = 30 * scaleY * 2;
+        const width = 30 * sizeScale * 2;
+        const height = 30 * sizeScale * 2;
 
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('class', 'plate-svg');
@@ -606,7 +625,14 @@ const Plates = {
         svg.style.zIndex = '20'; // Plates visual z-index (integer)
         svg.setAttribute('width', width);
         svg.setAttribute('height', height);
-        svg.style.transform = `translate(${-width/2}px, ${-height/2}px)`;
+        // Counter-rotate to stay upright in rotated board-area
+        const boardRotation = AppState.boardRotation || 0;
+        if (boardRotation !== 0) {
+            svg.style.transform = `translate(${-width/2}px, ${-height/2}px) rotate(${-boardRotation}deg)`;
+            svg.style.transformOrigin = `${width/2}px ${height/2}px`;
+        } else {
+            svg.style.transform = `translate(${-width/2}px, ${-height/2}px)`;
+        }
         svg.id = plate.id; // Use ID for fast lookup, consistent with players
         svg.dataset.plate = plate.id; // Keep data attribute for compatibility
 

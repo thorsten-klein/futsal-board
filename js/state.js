@@ -7,6 +7,7 @@ const AppState = {
     boardHeight: 2500, // Matches court.svg viewBox height
     pitchOffsetX: 250, // Pitch offset in court.svg
     pitchOffsetY: 250, // Pitch offset in court.svg
+    boardRotation: 0,  // Board rotation in degrees (0, 90, 180, 270)
 
     // Current tool
     currentTool: 'select',
@@ -36,7 +37,7 @@ const AppState = {
         'animationDuration', 'animationFPS', 'animationShowPaths', 'animationShowAllPaths', 'animationShowAllGhosts',
         'animationShowPathsAnimation', 'animationShowGhostsBoard', 'animationShowGhostsAnimation',
         'animationShowPathLabels', 'animationShowPathLabelsAnimation', 'animationRemovePathAfterFrame',
-        'animationRepeat', 'animationCropVideo', 'showOnlyChangedObjects'],
+        'animationRepeat', 'animationCropVideo', 'showOnlyChangedObjects', 'boardRotation'],
     _histSnap: null, // { [key]: string } — JSON serializations for change detection
 
     // Drawings (arrows and lines)
@@ -393,6 +394,7 @@ const AppState = {
                 animationCropVideo: this.animationCropVideo,
                 showOnlyChangedObjects: this.showOnlyChangedObjects,
                 showBoardBreadcrumb: this.showBoardBreadcrumb,
+                boardRotation: this.boardRotation
             };
             localStorage.setItem('futsalBoard', JSON.stringify(data));
 
@@ -491,6 +493,7 @@ const AppState = {
                     teamPlayerNumbers: structuredClone(this.teamPlayerNumbers),
                     pathIntermediates: structuredClone(this.pathIntermediates),
                     playbackSpeed: this.playbackSpeed !== undefined ? this.playbackSpeed : 1.0
+                    // boardRotation is global, not saved per-board
                 };
             }
         }
@@ -720,6 +723,7 @@ const AppState = {
                 if (parsed.animationCropVideo !== undefined) this.animationCropVideo = parsed.animationCropVideo;
                 if (parsed.showOnlyChangedObjects !== undefined) this.showOnlyChangedObjects = parsed.showOnlyChangedObjects;
                 if (parsed.showBoardBreadcrumb !== undefined) this.showBoardBreadcrumb = parsed.showBoardBreadcrumb;
+                if (parsed.boardRotation !== undefined) this.boardRotation = parsed.boardRotation;
             } else {
                 // No data, create initial board
                 this.createBoard('Board 1');
@@ -749,6 +753,7 @@ const AppState = {
             this.teamPlayerNumbers = structuredClone(board.teamPlayerNumbers || {});
             this.pathIntermediates = structuredClone(board.pathIntermediates || {});
             this.playbackSpeed = board.playbackSpeed !== undefined ? board.playbackSpeed : 1.0;
+            // boardRotation is global, not per-board, so don't load it from board data
 
             // Reset parent positions
             this.parentPlayerPositions = {};
@@ -1025,24 +1030,29 @@ const AppState = {
         // Create default goals for root boards
         const defaultElements = [];
         if (parentId === null) {
-            // Left goal: at x=250 (0 in pitch coords), y=1250 (1000 in pitch coords), rotation=0
+            // Goals need to account for current board rotation
+            // Base rotations: left goal faces right (0°), right goal faces left (180°)
+            // Add current board rotation so they maintain screen orientation after counter-rotation
+            const currentRotation = this.boardRotation || 0;
+
+            // Left goal: at x=250 (0 in pitch coords), y=1250 (1000 in pitch coords)
             defaultElements.push({
                 id: 'element-1',
                 type: 'goal',
                 x: 250,
                 y: 1250,
                 color: null,
-                rotation: 0,
+                rotation: (0 + currentRotation) % 360,
                 visible: true
             });
-            // Right goal: at x=4250 (4000 in pitch coords), y=1250 (1000 in pitch coords), rotation=180
+            // Right goal: at x=4250 (4000 in pitch coords), y=1250 (1000 in pitch coords)
             defaultElements.push({
                 id: 'element-2',
                 type: 'goal',
                 x: 4250,
                 y: 1250,
                 color: null,
-                rotation: 180,
+                rotation: (180 + currentRotation) % 360,
                 visible: true
             });
         }
@@ -1067,6 +1077,7 @@ const AppState = {
             nextPlateId: 1,
             teamPlayerNumbers: {},
             playbackSpeed: 1.0
+            // boardRotation is global, not per-board
         };
         this.boards.push(newBoard);
 
@@ -1102,6 +1113,7 @@ const AppState = {
             players: [],
             drawings: [],
             elements: [],
+            // boardRotation is global, not per-board
             balls: [],
             plates: [],
             shapes: [],
@@ -1497,6 +1509,16 @@ const AppState = {
         }
 
         this.updateUndoRedoButtons();
+
+        // Update visual board rotation if it changed
+        if (typeof App !== 'undefined' && App.updateBoardVisualRotation) {
+            App.updateBoardVisualRotation();
+        }
+
+        // Update rotation display in settings tab
+        if (typeof App !== 'undefined' && App.updateBoardRotationDisplay) {
+            App.updateBoardRotationDisplay();
+        }
 
         if (typeof Teams !== 'undefined') { Teams.render(); }
         if (typeof Shapes !== 'undefined') { Shapes.render(); }

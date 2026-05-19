@@ -233,14 +233,12 @@ const Balls = {
                         AppState.draggedBall = ball;
                         AppState.updatePositionDisplay(ball.x, ball.y, ball, 'ball');
 
-                        const rect = AppState.canvas.getBoundingClientRect();
-                        const scaleX = AppState.boardWidth / rect.width;
-                        const scaleY = AppState.boardHeight / rect.height;
-
                         // Calculate drag offset to prevent jump when dragging from edge
+                        // Use screenToBoardCoords to account for rotation
+                        const boardCoords = Utils.screenToBoardCoords(e.clientX, e.clientY);
                         AppState.dragOffset = {
-                            x: (e.clientX - rect.left) * scaleX - ball.x,
-                            y: (e.clientY - rect.top)  * scaleY - ball.y
+                            x: boardCoords.x - ball.x,
+                            y: boardCoords.y - ball.y
                         };
                     }
 
@@ -267,13 +265,29 @@ const Balls = {
             selectedKey: 'selectedBall',
             type: 'ball',
             updateDOM(el, x, y, pxW, pxH) {
-                const pxX = x * (pxW / AppState.boardWidth);
-                const pxY = y * (pxH / AppState.boardHeight);
-                const w = 60 * (pxW / AppState.boardWidth);
-                const h = 60 * (pxH / AppState.boardHeight);
+                // Use canvas dimensions (not getBoundingClientRect) to match initial positioning
+                const canvasWidth = AppState.canvas.width;
+                const canvasHeight = AppState.canvas.height;
+                const scaleX = canvasWidth / AppState.boardWidth;
+                const scaleY = canvasHeight / AppState.boardHeight;
+                const positionScale = Math.min(scaleX, scaleY);
+                const sizeScale = AppState.referenceScale || positionScale;
+
+                const pxX = x * positionScale;
+                const pxY = y * positionScale;
+                const w = 60 * sizeScale;
+                const h = 60 * sizeScale;
                 el.style.left = pxX + 'px';
                 el.style.top  = pxY + 'px';
-                el.style.transform = `translate(${-w/2}px, ${-h/2}px)`;
+
+                // Counter-rotate to stay upright in rotated board-area (same as in renderBall)
+                const boardRotation = AppState.boardRotation || 0;
+                if (boardRotation !== 0) {
+                    el.style.transform = `translate(${-w/2}px, ${-h/2}px) rotate(${-boardRotation}deg)`;
+                    el.style.transformOrigin = `${w/2}px ${h/2}px`;
+                } else {
+                    el.style.transform = `translate(${-w/2}px, ${-h/2}px)`;
+                }
 
                 // Update touch overlay position during drag (touch mode)
                 if (document.body.classList.contains('touch-mode') && AppState.draggedBall) {
@@ -658,11 +672,17 @@ const Balls = {
 
             // Add a larger transparent hit area in touch mode
             if (document.body.classList.contains('touch-mode')) {
-                const canvasRect = AppState.canvas.getBoundingClientRect();
+                // Use canvas.width/height (not getBoundingClientRect) to match ball SVG positioning
+                const canvasWidth = AppState.canvas.width;
+                const canvasHeight = AppState.canvas.height;
+                const scaleX = canvasWidth / AppState.boardWidth;
+                const scaleY = canvasHeight / AppState.boardHeight;
+                const positionScale = Math.min(scaleX, scaleY);
+
                 const overlay = document.createElement('div');
                 overlay.className = 'touch-overlay';
-                overlay.style.left = (ball.x * (canvasRect.width / AppState.boardWidth)) + 'px';
-                overlay.style.top  = (ball.y * (canvasRect.height / AppState.boardHeight)) + 'px';
+                overlay.style.left = (ball.x * positionScale) + 'px';
+                overlay.style.top  = (ball.y * positionScale) + 'px';
                 overlay.style.zIndex = '140'; // Ball overlay = visual z-index (40) + 100
                 overlay.style.pointerEvents = 'auto';
                 overlay.dataset.ball = ball.id;
@@ -675,18 +695,23 @@ const Balls = {
 
     // Create SVG for ball on board
     createBallElementSvg(ball) {
-        const canvasRect = AppState.canvas.getBoundingClientRect();
+        // Use canvas.width (not getBoundingClientRect) to get untransformed size
+        const canvasWidth = AppState.canvas.width;
+        const canvasHeight = AppState.canvas.height;
 
-        // Scale based on actual rendered canvas size
-        const scaleX = canvasRect.width / AppState.boardWidth;
-        const scaleY = canvasRect.height / AppState.boardHeight;
+        // For POSITION, use current canvas scale
+        const scaleX = canvasWidth / AppState.boardWidth;
+        const scaleY = canvasHeight / AppState.boardHeight;
+        const positionScale = Math.min(scaleX, scaleY);
 
-        // Position relative to players-layer (which is already positioned to match canvas)
-        const x = ball.x * scaleX;
-        const y = ball.y * scaleY;
+        // For SIZE, use reference scale (from 0°) directly
+        // This makes balls scale proportionally with the board layer
+        const sizeScale = AppState.referenceScale || positionScale;
 
-        const width = 60 * scaleX;
-        const height = 60 * scaleY;
+        const x = ball.x * positionScale;
+        const y = ball.y * positionScale;
+        const width = 60 * sizeScale;
+        const height = 60 * sizeScale;
 
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('class', 'ball-svg');
@@ -708,7 +733,14 @@ const Balls = {
         svg.style.zIndex = '40'; // Balls visual z-index (integer)
         svg.setAttribute('width', width);
         svg.setAttribute('height', height);
-        svg.style.transform = `translate(${-width/2}px, ${-height/2}px)`;
+        // Counter-rotate to stay upright in rotated board-area
+        const boardRotation = AppState.boardRotation || 0;
+        if (boardRotation !== 0) {
+            svg.style.transform = `translate(${-width/2}px, ${-height/2}px) rotate(${-boardRotation}deg)`;
+            svg.style.transformOrigin = `${width/2}px ${height/2}px`;
+        } else {
+            svg.style.transform = `translate(${-width/2}px, ${-height/2}px)`;
+        }
         svg.id = ball.id; // Use ID for fast lookup, consistent with players
         svg.dataset.ball = ball.id; // Keep data attribute for compatibility
 

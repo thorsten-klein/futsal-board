@@ -269,6 +269,121 @@ const Utils = {
     },
 
     /**
+     * Convert screen coordinates (e.clientX, e.clientY) to board coordinates,
+     * accounting for board rotation and scale transformations.
+     * @param {number} clientX - Screen X coordinate
+     * @param {number} clientY - Screen Y coordinate
+     * @returns {{x: number, y: number}} Board coordinates
+     */
+    screenToBoardCoords(clientX, clientY) {
+        const canvas = AppState.canvas;
+        const rotation = AppState.boardRotation || 0;
+
+        // Get canvas visual rectangle
+        const canvasRect = canvas.getBoundingClientRect();
+
+        if (rotation === 0) {
+            // No rotation: simple conversion
+            // Click is relative to canvas visual position
+            const canvasX = clientX - canvasRect.left;
+            const canvasY = clientY - canvasRect.top;
+            return Board.screenToBoard(canvasX, canvasY);
+        }
+
+        // With rotation: canvas has a CSS transform applied
+        // boardToScreen returns coordinates in PRE-transform space (using canvas.width/height)
+        // We need to convert from POST-transform screen coords to PRE-transform canvas coords
+
+        const style = window.getComputedStyle(canvas);
+        const transform = style.transform;
+
+        if (transform === 'none') {
+            const canvasX = clientX - canvasRect.left;
+            const canvasY = clientY - canvasRect.top;
+            return Board.screenToBoard(canvasX, canvasY);
+        }
+
+        // Parse the transform matrix and invert it
+        const matrix = new DOMMatrix(transform);
+        const inverse = matrix.inverse();
+
+        // Get click position relative to canvas visual center (after transform)
+        const visualCenterX = canvasRect.left + canvasRect.width / 2;
+        const visualCenterY = canvasRect.top + canvasRect.height / 2;
+        const relX = clientX - visualCenterX;
+        const relY = clientY - visualCenterY;
+
+        // Apply inverse transform to get coordinates relative to canvas center (before transform)
+        const point = inverse.transformPoint(new DOMPoint(relX, relY));
+
+        // Translate from center-relative to top-left relative using PRE-TRANSFORM dimensions
+        const canvasX = point.x + canvas.width / 2;
+        const canvasY = point.y + canvas.height / 2;
+
+        // Convert to board coordinates
+        return Board.screenToBoard(canvasX, canvasY);
+    },
+
+    /**
+     * Convert board coordinates to screen (client) coordinates.
+     * This is the inverse of screenToBoardCoords.
+     * @param {number} boardX - Board X coordinate
+     * @param {number} boardY - Board Y coordinate
+     * @returns {{x: number, y: number}} Screen coordinates relative to board-container
+     */
+    boardToScreenCoords(boardX, boardY) {
+        const canvas = AppState.canvas;
+        const rotation = AppState.boardRotation || 0;
+        const container = document.querySelector('.board-container');
+        const containerRect = container.getBoundingClientRect();
+
+        // Get canvas visual rectangle
+        const canvasRect = canvas.getBoundingClientRect();
+
+        if (rotation === 0) {
+            // No rotation: simple conversion (inverse of screenToBoardCoords)
+            const canvasPos = Board.boardToScreen(boardX, boardY);
+            return {
+                x: canvasPos.x + (canvasRect.left - containerRect.left),
+                y: canvasPos.y + (canvasRect.top - containerRect.top)
+            };
+        }
+
+        // With rotation: exact inverse of screenToBoardCoords
+        // Step 1: Convert board to PRE-transform canvas coords (inverse of Board.screenToBoard)
+        const canvasPos = Board.boardToScreen(boardX, boardY);
+
+        const style = window.getComputedStyle(canvas);
+        const transform = style.transform;
+
+        if (transform === 'none') {
+            return {
+                x: canvasPos.x + (canvasRect.left - containerRect.left),
+                y: canvasPos.y + (canvasRect.top - containerRect.top)
+            };
+        }
+
+        // Step 2: Parse the transform matrix (forward, not inverse)
+        const matrix = new DOMMatrix(transform);
+
+        // Step 3: Translate to center-relative using PRE-transform dimensions
+        const relX = canvasPos.x - canvas.width / 2;
+        const relY = canvasPos.y - canvas.height / 2;
+
+        // Step 4: Apply FORWARD transform
+        const point = matrix.transformPoint(new DOMPoint(relX, relY));
+
+        // Step 5: Translate to container-relative screen coords
+        const visualCenterX = canvasRect.left - containerRect.left + canvasRect.width / 2;
+        const visualCenterY = canvasRect.top - containerRect.top + canvasRect.height / 2;
+
+        return {
+            x: point.x + visualCenterX,
+            y: point.y + visualCenterY
+        };
+    },
+
+    /**
      * Traverses the DOM up from `target` to `layer` looking for an element with
      * `dataset[dataKey]` set. Returns the dataset value, or null if not found.
      * Replaces the identical while-loop in every mousedown / context-menu handler.
@@ -320,13 +435,12 @@ const Utils = {
             const entity = AppState[dragKey];
             if (!entity || AppState.currentTool !== 'select') return;
 
-            const rect = AppState.canvas.getBoundingClientRect();
-            const scaleX = AppState.boardWidth  / rect.width;
-            const scaleY = AppState.boardHeight / rect.height;
+            // Convert screen coordinates to board coordinates, accounting for rotation
+            const boardCoords = Utils.screenToBoardCoords(e.clientX, e.clientY);
 
             const raw = Utils.clampToBoardBounds(
-                (e.clientX - rect.left) * scaleX - AppState.dragOffset.x,
-                (e.clientY - rect.top)  * scaleY - AppState.dragOffset.y
+                boardCoords.x - AppState.dragOffset.x,
+                boardCoords.y - AppState.dragOffset.y
             );
 
             entity.x = raw.x;
@@ -334,6 +448,7 @@ const Utils = {
             AppState.updatePositionDisplay(raw.x, raw.y, entity, type);
 
             const el = document.getElementById(entity.id);
+            const rect = AppState.canvas.getBoundingClientRect();
             if (el) updateDOM(el, raw.x, raw.y, rect.width, rect.height);
 
             if (afterMove) afterMove(entity);
@@ -387,9 +502,33 @@ const Utils = {
 
                     // For elements/shapes that can rotate, copy exact position and transform
                     if (element.style.transform && (objectType === 'shape' || objectType === 'element')) {
-                        // element.style.left/top are relative to #board-area, but the debug box
-                        // is in .board-container — add the board-area offset to correct for this
+                        const boardRotation = AppState.boardRotation || 0;
+
+                        // When board is rotated, players-layer has a transform, so we can't just add offsets
+                        // Use getBoundingClientRect() instead
+                        if (boardRotation !== 0) {
+                            const rect = element.getBoundingClientRect();
+                            const containerRect = boardContainer.getBoundingClientRect();
+
+                            if (rect.width === 0 || rect.height === 0) {
+                                return;
+                            }
+
+                            debugBox.style.left = (rect.left - containerRect.left) + 'px';
+                            debugBox.style.top = (rect.top - containerRect.top) + 'px';
+                            debugBox.style.width = rect.width + 'px';
+                            debugBox.style.height = rect.height + 'px';
+                            debugBox.style.transform = 'none';
+                            debugBox.style.transformOrigin = '';
+                            boardContainer.appendChild(debugBox);
+                            return;
+                        }
+
+                        // At 0° rotation: add players-layer and board-area offsets
+                        const playersLayer = document.getElementById('players-layer');
                         const boardArea = document.getElementById('board-area');
+                        const playersLeft = playersLayer ? (parseFloat(playersLayer.style.left) || 0) : 0;
+                        const playersTop = playersLayer ? (parseFloat(playersLayer.style.top) || 0) : 0;
                         const areaLeft = boardArea ? (parseFloat(boardArea.style.left) || 0) : 0;
                         const areaTop = boardArea ? (parseFloat(boardArea.style.top) || 0) : 0;
                         const elemLeft = parseFloat(element.style.left) || 0;
@@ -398,8 +537,8 @@ const Utils = {
                         // Get width and height - use style if available, otherwise getAttribute
                         let width = parseFloat(element.style.width) || parseFloat(element.getAttribute('width'));
                         let height = parseFloat(element.style.height) || parseFloat(element.getAttribute('height'));
-                        let left = areaLeft + elemLeft;
-                        let top = areaTop + elemTop;
+                        let left = playersLeft + areaLeft + elemLeft;
+                        let top = playersTop + areaTop + elemTop;
                         let transform = element.style.transform;
                         let transformOrigin = element.style.transformOrigin;
 
@@ -455,19 +594,47 @@ const Utils = {
                         debugBox.style.transform = transform;
                         debugBox.style.transformOrigin = transformOrigin;
                     } else {
-                        // For players, balls, plates, and non-rotated items, use bounding rect
-                        const rect = element.getBoundingClientRect();
-                        const containerRect = boardContainer.getBoundingClientRect();
+                        // For players, balls, plates, and non-rotated items
+                        const boardRotation = AppState.boardRotation || 0;
 
-                        // Skip if element has zero size (not visible)
-                        if (rect.width === 0 || rect.height === 0) {
-                            return;
+                        // When board is rotated, use getBoundingClientRect for accurate positioning
+                        if (boardRotation !== 0) {
+                            const rect = element.getBoundingClientRect();
+                            const containerRect = boardContainer.getBoundingClientRect();
+
+                            if (rect.width === 0 || rect.height === 0) {
+                                return;
+                            }
+
+                            debugBox.style.left = (rect.left - containerRect.left) + 'px';
+                            debugBox.style.top = (rect.top - containerRect.top) + 'px';
+                            debugBox.style.width = rect.width + 'px';
+                            debugBox.style.height = rect.height + 'px';
+
+                            // Apply elliptical border for ball and plate circles
+                            if (objectType === 'ball' || objectType === 'plate') {
+                                debugBox.style.borderRadius = '50%';
+                            }
+                        } else {
+                            // At 0° rotation, use bounding rect
+                            const rect = element.getBoundingClientRect();
+                            const containerRect = boardContainer.getBoundingClientRect();
+
+                            // Skip if element has zero size (not visible)
+                            if (rect.width === 0 || rect.height === 0) {
+                                return;
+                            }
+
+                            debugBox.style.left = (rect.left - containerRect.left) + 'px';
+                            debugBox.style.top = (rect.top - containerRect.top) + 'px';
+                            debugBox.style.width = rect.width + 'px';
+                            debugBox.style.height = rect.height + 'px';
+
+                            // Apply elliptical border for ball and plate circles
+                            if (objectType === 'ball' || objectType === 'plate') {
+                                debugBox.style.borderRadius = '50%';
+                            }
                         }
-
-                        debugBox.style.left = (rect.left - containerRect.left) + 'px';
-                        debugBox.style.top = (rect.top - containerRect.top) + 'px';
-                        debugBox.style.width = rect.width + 'px';
-                        debugBox.style.height = rect.height + 'px';
                     }
 
                     boardContainer.appendChild(debugBox);
@@ -488,9 +655,32 @@ const Utils = {
         if (element && debugBox && boardContainer) {
             // For shapes and elements that can rotate, copy exact positioning and transform
             if (element.style.transform && (objectType === 'shape' || objectType === 'element')) {
-                // element.style.left/top are relative to #board-area, but the debug box
-                // is in .board-container — add the board-area offset to correct for this
+                const boardRotation = AppState.boardRotation || 0;
+
+                // When board is rotated, players-layer has a transform, so we can't just add offsets
+                // Use getBoundingClientRect() instead
+                if (boardRotation !== 0) {
+                    const rect = element.getBoundingClientRect();
+                    const containerRect = boardContainer.getBoundingClientRect();
+
+                    if (rect.width === 0 || rect.height === 0) {
+                        return;
+                    }
+
+                    debugBox.style.left = (rect.left - containerRect.left) + 'px';
+                    debugBox.style.top = (rect.top - containerRect.top) + 'px';
+                    debugBox.style.width = rect.width + 'px';
+                    debugBox.style.height = rect.height + 'px';
+                    debugBox.style.transform = 'none';
+                    debugBox.style.transformOrigin = '';
+                    return;
+                }
+
+                // At 0° rotation: add players-layer and board-area offsets
+                const playersLayer = document.getElementById('players-layer');
                 const boardArea = document.getElementById('board-area');
+                const playersLeft = playersLayer ? (parseFloat(playersLayer.style.left) || 0) : 0;
+                const playersTop = playersLayer ? (parseFloat(playersLayer.style.top) || 0) : 0;
                 const areaLeft = boardArea ? (parseFloat(boardArea.style.left) || 0) : 0;
                 const areaTop = boardArea ? (parseFloat(boardArea.style.top) || 0) : 0;
                 const elemLeft = parseFloat(element.style.left) || 0;
@@ -499,8 +689,8 @@ const Utils = {
                 // Get width and height - use style if available, otherwise getAttribute
                 let width = parseFloat(element.style.width) || parseFloat(element.getAttribute('width'));
                 let height = parseFloat(element.style.height) || parseFloat(element.getAttribute('height'));
-                let left = areaLeft + elemLeft;
-                let top = areaTop + elemTop;
+                let left = playersLeft + areaLeft + elemLeft;
+                let top = playersTop + areaTop + elemTop;
                 let transform = element.style.transform;
                 let transformOrigin = element.style.transformOrigin;
 
@@ -612,7 +802,12 @@ const App = {
         this.setupEscapeKey();
         this.setupScreenshot();
         this.setupBoardCanvasContextMenu();
+        this.setupBoardRotationControls();
         this.setupModalObserver();
+
+        // Apply any saved board rotation BEFORE initial render
+        // This ensures the scale factor is set correctly when elements are first rendered
+        this.updateBoardVisualRotation();
 
         // Initial render
         this.render();
@@ -635,9 +830,10 @@ const App = {
         AppState.saveToHistory();
 
         // Force a resize and re-render after DOM is fully laid out
-        // This fixes initial positioning issues
+        // This fixes initial positioning issues and ensures scale factor is correct for loaded rotation
         requestAnimationFrame(() => {
             Board.resize();
+            this.updateBoardVisualRotation(); // Re-apply rotation with correct scale factor
             this.render();
 
             // Ensure rotation handles are updated after initial layout
@@ -1617,6 +1813,21 @@ const App = {
                 screenshotMenu.classList.remove('hidden');
                 screenshotMenu.style.display = 'block';
 
+                // Update dimension labels to reflect current board orientation.
+                // At 90°/270° the export is portrait, so swap width × height in labels.
+                const portrait = (AppState.boardRotation === 90 || AppState.boardRotation === 270);
+                screenshotMenu.querySelectorAll('.context-menu-item[data-width][data-height]').forEach(item => {
+                    const nW = parseInt(item.dataset.width);
+                    const nH = parseInt(item.dataset.height);
+                    const dW = portrait ? nH : nW;
+                    const dH = portrait ? nW : nH;
+                    for (const node of item.childNodes) {
+                        if (node.nodeType === Node.TEXT_NODE && node.textContent.includes('×')) {
+                            node.textContent = node.textContent.replace(/\d+×\d+/, `${dW}×${dH}`);
+                        }
+                    }
+                });
+
                 // Get menu dimensions after making it visible
                 const menuRect = screenshotMenu.getBoundingClientRect();
 
@@ -1720,143 +1931,205 @@ const App = {
         });
     },
 
+    /**
+     * Shared screenshot canvas builder used by exportScreenshot and
+     * copyScreenshotToClipboard.
+     *
+     * Renders every board layer in the board's NATIVE coordinate space
+     * (targetWidth × targetHeight, landscape for a standard board), then
+     * rotates the resulting canvas to match the current board rotation.
+     *
+     * Why we strip CSS transforms before rendering:
+     *   updateBoardVisualRotation() applies an inline
+     *   `rotate(Ndeg) scale(sf)` to every layer element.  When those
+     *   elements are serialised (SVG) or captured (html-to-image) the CSS
+     *   transform is included, which shifts/rotates/scales all content in
+     *   the export canvas.  By setting transform:'none' on each clone we
+     *   obtain pixel-perfect native-space output and then apply the board
+     *   rotation ourselves via a single canvas transform at the end.
+     *
+     * Individual per-entity counter-rotations (cones, text, player numbers)
+     * are left intact so the final rotated canvas shows them exactly as they
+     * appear on screen.
+     *
+     * Returns the final HTMLCanvasElement (dimensions depend on rotation).
+     */
+    async _buildScreenshotCanvas(targetWidth, targetHeight) {
+        // Ensure html-to-image is available
+        if (typeof htmlToImage === 'undefined') {
+            const script = document.createElement('script');
+            script.src = 'ext/html-to-image.js';
+            document.head.appendChild(script);
+            await new Promise((resolve, reject) => {
+                script.onload = resolve;
+                script.onerror = reject;
+            });
+        }
+
+        // w × h = native board dimensions (always landscape for a standard board)
+        const w = targetWidth;
+        const h = targetHeight;
+
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width  = w;
+        exportCanvas.height = h;
+        const ctx = exportCanvas.getContext('2d');
+
+        // Helper: load any src into a resolved HTMLImageElement
+        const loadImg = (src) => new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload  = () => resolve(img);
+            img.onerror = reject;
+            img.src = src;
+        });
+
+        // Helper: clone an SVG layer, strip the CSS rotation/scale that
+        // updateBoardVisualRotation() applied, resize to native dims, and
+        // stamp onto the export canvas.
+        const drawSvgLayer = async (svgEl) => {
+            if (!svgEl) return;
+            const clone = svgEl.cloneNode(true);
+            clone.setAttribute('width',  String(w));
+            clone.setAttribute('height', String(h));
+            clone.setAttribute('xmlns',  'http://www.w3.org/2000/svg');
+            clone.style.transform       = 'none';
+            clone.style.transformOrigin = '';
+            const svgStr = new XMLSerializer().serializeToString(clone);
+            const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
+            ctx.drawImage(await loadImg(dataUrl), 0, 0, w, h);
+        };
+
+        // ── Layer 1: parquet background ───────────────────────────────────────
+        ctx.fillStyle = '#d9a66a';
+        ctx.fillRect(0, 0, w, h);
+        {
+            const parquetSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="120"><rect width="600" height="120" fill="#d9a66a"/><g stroke="#7a5832" stroke-width="0.6"><g fill="#e6bb7f"><rect x="0" y="0" width="300" height="12"/><rect x="300" y="0" width="300" height="12"/></g><g fill="#ebc996"><rect x="-40" y="12" width="300" height="12"/><rect x="260" y="12" width="300" height="12"/><rect x="560" y="12" width="300" height="12"/></g><g fill="#f0d7a8"><rect x="-120" y="24" width="300" height="12"/><rect x="180" y="24" width="300" height="12"/><rect x="480" y="24" width="300" height="12"/></g><g fill="#e4c08d"><rect x="-200" y="36" width="300" height="12"/><rect x="100" y="36" width="300" height="12"/><rect x="400" y="36" width="300" height="12"/></g><g fill="#efd3a3"><rect x="-80" y="48" width="300" height="12"/><rect x="220" y="48" width="300" height="12"/><rect x="520" y="48" width="300" height="12"/></g><g fill="#e9c894"><rect x="-160" y="60" width="300" height="12"/><rect x="140" y="60" width="300" height="12"/><rect x="440" y="60" width="300" height="12"/></g><g fill="#f2deb5"><rect x="-20" y="72" width="300" height="12"/><rect x="280" y="72" width="300" height="12"/></g><g fill="#e3c18c"><rect x="-100" y="84" width="300" height="12"/><rect x="200" y="84" width="300" height="12"/><rect x="500" y="84" width="300" height="12"/></g><g fill="#edd2a6"><rect x="-220" y="96" width="300" height="12"/><rect x="80" y="96" width="300" height="12"/><rect x="380" y="96" width="300" height="12"/></g><g fill="#e7c795"><rect x="-60" y="108" width="300" height="12"/><rect x="240" y="108" width="300" height="12"/><rect x="540" y="108" width="300" height="12"/></g></g></svg>`;
+            const parquetUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(parquetSvg);
+            try {
+                const parquetImg = await loadImg(parquetUrl);
+                const tileH = Math.round(h / 5);
+                const tileW = tileH * 5;
+                let startX = ((w / 2 - tileW / 2) % tileW + tileW) % tileW - tileW;
+                let startY = ((h / 2 - tileH / 2) % tileH + tileH) % tileH - tileH;
+                for (let x = startX; x < w; x += tileW) {
+                    for (let y = startY; y < h; y += tileH) {
+                        ctx.drawImage(parquetImg, x, y, tileW, tileH);
+                    }
+                }
+            } catch (_) { /* keep solid colour fallback */ }
+        }
+
+        // ── Layer 2: court SVG (strip CSS transform before serialising) ───────
+        {
+            const courtEl = document.getElementById('court-svg');
+            const courtClone = courtEl.cloneNode(true);
+            courtClone.style.transform       = 'none';
+            courtClone.style.transformOrigin = '';
+            const svgText = new XMLSerializer().serializeToString(courtClone);
+            const sized = svgText.replace(
+                /(<svg\b[^>]*?)(\s*\/>|>)/,
+                `$1 width="${w}" height="${h}"$2`
+            );
+            const courtUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(sized);
+            ctx.globalAlpha = 0.8;
+            ctx.drawImage(await loadImg(courtUrl), 0, 0, w, h);
+            ctx.globalAlpha = 1;
+        }
+
+        // ── Layer 3: in-progress drawings (strip CSS transform) ───────────────
+        await drawSvgLayer(document.getElementById('drawing-layer'));
+
+        // ── Layer 4: completed paths / arrows (strip CSS transform) ───────────
+        await drawSvgLayer(document.getElementById('paths-layer'));
+
+        // ── Layer 5: players, balls, plates, elements, shapes (DOM) ──────────
+        // We clone the players-layer with its CSS transform stripped so
+        // html-to-image captures entities in native board-space coordinates.
+        // Individual entity counter-rotations (cones, text, etc.) are preserved
+        // because they are inline styles on child elements, not on the layer.
+        const playersLayer = document.getElementById('players-layer');
+        if (playersLayer) {
+            const opts = {
+                backgroundColor: null,
+                skipFonts:       true,
+            };
+            if (!App._htmlToImageWarmed) {
+                await htmlToImage.toCanvas(playersLayer, { ...opts, pixelRatio: 0.1 });
+                App._htmlToImageWarmed = true;
+            }
+
+            const wrapper = document.createElement('div');
+            wrapper.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;overflow:hidden;';
+
+            const layerClone = playersLayer.cloneNode(true);
+            layerClone.style.position       = 'absolute';
+            layerClone.style.left           = '0';
+            layerClone.style.top            = '0';
+            layerClone.style.width          = playersLayer.style.width;
+            layerClone.style.height         = playersLayer.style.height;
+            layerClone.style.transform      = 'none';   // strip board rotation/scale
+            layerClone.style.transformOrigin = '';
+
+            wrapper.appendChild(layerClone);
+            document.body.appendChild(wrapper);
+
+            const entityCanvas = await htmlToImage.toCanvas(layerClone, {
+                ...opts,
+                canvasWidth:  w,
+                canvasHeight: h,
+            });
+
+            document.body.removeChild(wrapper);
+            ctx.drawImage(entityCanvas, 0, 0);
+        }
+
+        // ── Apply board rotation to produce the final output canvas ───────────
+        // exportCanvas is in native board orientation (e.g. landscape 4500×2500).
+        // Rotating it gives the same visual result as the CSS transform shown on
+        // screen, including all counter-rotated entity transforms.
+        const rotation = AppState.boardRotation || 0;
+        if (rotation === 0) {
+            return exportCanvas;
+        }
+
+        const portrait = rotation === 90 || rotation === 270;
+        const outW = portrait ? h : w;   // e.g. 2500 at 90°
+        const outH = portrait ? w : h;   // e.g. 4500 at 90°
+
+        const finalCanvas = document.createElement('canvas');
+        finalCanvas.width  = outW;
+        finalCanvas.height = outH;
+        const fc = finalCanvas.getContext('2d');
+
+        if (rotation === 90) {
+            fc.translate(outW, 0);
+            fc.rotate(Math.PI / 2);
+        } else if (rotation === 180) {
+            fc.translate(outW, outH);
+            fc.rotate(Math.PI);
+        } else { // 270
+            fc.translate(0, outH);
+            fc.rotate(-Math.PI / 2);
+        }
+        fc.drawImage(exportCanvas, 0, 0, w, h);
+        return finalCanvas;
+    },
+
     // Export screenshot with specified dimensions
     async exportScreenshot(targetWidth, targetHeight) {
         try {
-            const boardContainer = document.querySelector('.board-container');
-            const boardCanvas   = document.getElementById('board-canvas');
-
-            if (!boardCanvas || !boardContainer) {
+            if (!document.getElementById('board-canvas')) {
                 Utils.showMessage('Board not found', 'Export Error');
                 return;
             }
 
-            // Load html-to-image (needed for the entity layer)
-            if (typeof htmlToImage === 'undefined') {
-                const script = document.createElement('script');
-                script.src = 'ext/html-to-image.js';
-                document.head.appendChild(script);
-                await new Promise((resolve, reject) => {
-                    script.onload = resolve;
-                    script.onerror = reject;
-                });
-            }
+            const finalCanvas = await this._buildScreenshotCanvas(targetWidth, targetHeight);
+            const outW = finalCanvas.width;
+            const outH = finalCanvas.height;
 
-            // Use target dimensions for export
-            const canvasRect = boardCanvas.getBoundingClientRect();
-            const w = targetWidth;
-            const h = targetHeight;
-            const scale = w / canvasRect.width;
-
-            const exportCanvas = document.createElement('canvas');
-            exportCanvas.width  = w;
-            exportCanvas.height = h;
-            const ctx = exportCanvas.getContext('2d');
-
-            // Helper: load any src into a resolved HTMLImageElement
-            const loadImg = (src) => new Promise((resolve, reject) => {
-                const img = new Image();
-                img.onload  = () => resolve(img);
-                img.onerror = reject;
-                img.src = src;
-            });
-
-            // ── Helper: serialise an SVG layer and stamp it onto the canvas ──
-            const drawSvgLayer = async (svgEl) => {
-                if (!svgEl) return;
-                const clone = svgEl.cloneNode(true);
-                clone.setAttribute('width',  String(w));
-                clone.setAttribute('height', String(h));
-                clone.setAttribute('xmlns',  'http://www.w3.org/2000/svg');
-                const svgStr = new XMLSerializer().serializeToString(clone);
-                const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
-                ctx.drawImage(await loadImg(dataUrl), 0, 0, w, h);
-            };
-
-            // ── Layer 1: parquet background ───────────────────────────────────
-            // Inline SVG parquet tile — mirrors the CSS background-image, no fetch
-            // needed so this works on file:// protocol too.
-            ctx.fillStyle = '#d9a66a';
-            ctx.fillRect(0, 0, w, h);
-            {
-                const parquetSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="120"><rect width="600" height="120" fill="#d9a66a"/><g stroke="#7a5832" stroke-width="0.6"><g fill="#e6bb7f"><rect x="0" y="0" width="300" height="12"/><rect x="300" y="0" width="300" height="12"/></g><g fill="#ebc996"><rect x="-40" y="12" width="300" height="12"/><rect x="260" y="12" width="300" height="12"/><rect x="560" y="12" width="300" height="12"/></g><g fill="#f0d7a8"><rect x="-120" y="24" width="300" height="12"/><rect x="180" y="24" width="300" height="12"/><rect x="480" y="24" width="300" height="12"/></g><g fill="#e4c08d"><rect x="-200" y="36" width="300" height="12"/><rect x="100" y="36" width="300" height="12"/><rect x="400" y="36" width="300" height="12"/></g><g fill="#efd3a3"><rect x="-80" y="48" width="300" height="12"/><rect x="220" y="48" width="300" height="12"/><rect x="520" y="48" width="300" height="12"/></g><g fill="#e9c894"><rect x="-160" y="60" width="300" height="12"/><rect x="140" y="60" width="300" height="12"/><rect x="440" y="60" width="300" height="12"/></g><g fill="#f2deb5"><rect x="-20" y="72" width="300" height="12"/><rect x="280" y="72" width="300" height="12"/></g><g fill="#e3c18c"><rect x="-100" y="84" width="300" height="12"/><rect x="200" y="84" width="300" height="12"/><rect x="500" y="84" width="300" height="12"/></g><g fill="#edd2a6"><rect x="-220" y="96" width="300" height="12"/><rect x="80" y="96" width="300" height="12"/><rect x="380" y="96" width="300" height="12"/></g><g fill="#e7c795"><rect x="-60" y="108" width="300" height="12"/><rect x="240" y="108" width="300" height="12"/><rect x="540" y="108" width="300" height="12"/></g></g></svg>`;
-                const parquetUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(parquetSvg);
-                try {
-                    const parquetImg = await loadImg(parquetUrl);
-                    // Match the CSS sizing: tile height = court height / 5
-                    const tileH = Math.round(h / 5);
-                    const tileW = tileH * 5;
-                    let startX = ((w / 2 - tileW / 2) % tileW + tileW) % tileW - tileW;
-                    let startY = ((h / 2 - tileH / 2) % tileH + tileH) % tileH - tileH;
-                    for (let x = startX; x < w; x += tileW) {
-                        for (let y = startY; y < h; y += tileH) {
-                            ctx.drawImage(parquetImg, x, y, tileW, tileH);
-                        }
-                    }
-                } catch (_) { /* keep solid colour fallback */ }
-            }
-
-            // ── Layer 2: court SVG ───────────────────────────────────────────
-            // Serialize the inline <svg id="court-svg"> element directly —
-            // no fetch() needed, so it works under file:// without any flags.
-            // Inject explicit width/height so Chrome renders at full resolution.
-            {
-                const courtEl = document.getElementById('court-svg');
-                const svgText = new XMLSerializer().serializeToString(courtEl);
-                const sized = svgText.replace(
-                    /(<svg\b[^>]*?)(\s*\/>|>)/,
-                    `$1 width="${w}" height="${h}"$2`
-                );
-                const courtUrl = 'data:image/svg+xml;charset=utf-8,' +
-                                 encodeURIComponent(sized);
-                ctx.globalAlpha = 0.8;   // match CSS opacity on #court-svg
-                ctx.drawImage(await loadImg(courtUrl), 0, 0, w, h);
-                ctx.globalAlpha = 1;
-            }
-
-            // ── Layer 3: in-progress drawings ────────────────────────────────
-            await drawSvgLayer(document.getElementById('drawing-layer'));
-
-            // ── Layer 4: completed paths / arrows ────────────────────────────
-            await drawSvgLayer(document.getElementById('paths-layer'));
-
-            // ── Layer 5: players, balls, plates, elements, shapes (DOM) ──────
-            // html-to-image is used only for this layer.  Entity elements use
-            // only inline colours — no external URLs — so this works under
-            // file:// without any fetch() calls.
-            // On the first ever call, html-to-image's style-inlining produces a
-            // nearly-transparent canvas because it hasn't yet cached the computed
-            // CSS rules it needs.  A cheap low-res warm-up call fills that cache
-            // so the high-res call immediately after renders correctly.
-            const playersLayer = document.getElementById('players-layer');
-            if (playersLayer) {
-                const opts = {
-                    backgroundColor: null,  // transparent background
-                    skipFonts:       true,  // no @font-face → skip CSS fetch
-                };
-                if (!App._htmlToImageWarmed) {
-                    await htmlToImage.toCanvas(playersLayer, { ...opts, pixelRatio: 0.1 });
-                    App._htmlToImageWarmed = true;
-                }
-
-                // players-layer always covers the full container at (0,0).
-                // board-area inside it is offset by (boardOffsetX, boardOffsetY)
-                // to align with the canvas. We capture the full layer and crop
-                // by the board-area offset so entities land at the right position.
-                const entityCanvas = await htmlToImage.toCanvas(playersLayer, {
-                    ...opts, pixelRatio: scale,
-                });
-
-                const boardArea  = document.getElementById('board-area');
-                const cropX = Math.round(parseFloat(boardArea.style.left || '0') * scale);
-                const cropY = Math.round(parseFloat(boardArea.style.top  || '0') * scale);
-                ctx.drawImage(entityCanvas, cropX, cropY, w, h, 0, 0, w, h);
-            }
-
-            // ── Download as PNG ───────────────────────────────────────────────
-            const blob = await new Promise(resolve => exportCanvas.toBlob(resolve, 'image/png'));
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
+            const blob = await new Promise(resolve => finalCanvas.toBlob(resolve, 'image/png'));
+            const url  = URL.createObjectURL(blob);
+            const a    = document.createElement('a');
             a.href = url;
 
             const boardName    = AppState.boards.find(b => b.id === AppState.currentBoardId)?.name || 'Board';
@@ -1869,7 +2142,7 @@ const App = {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
 
-            Utils.showToast(`Screenshot exported (${w}×${h})`, 'success');
+            Utils.showToast(`Screenshot exported (${outW}×${outH})`, 'success');
 
         } catch (error) {
             console.error('Screenshot export failed:', error);
@@ -1880,135 +2153,26 @@ const App = {
     // Copy screenshot to clipboard with specified dimensions
     async copyScreenshotToClipboard(targetWidth, targetHeight) {
         try {
-            // Check if Clipboard API is supported
             if (!navigator.clipboard || !navigator.clipboard.write) {
                 Utils.showMessage('Clipboard API not supported in this browser', 'Copy Error');
                 return;
             }
-
-            const boardContainer = document.querySelector('.board-container');
-            const boardCanvas   = document.getElementById('board-canvas');
-
-            if (!boardCanvas || !boardContainer) {
+            if (!document.getElementById('board-canvas')) {
                 Utils.showMessage('Board not found', 'Copy Error');
                 return;
             }
 
-            // Load html-to-image (needed for the entity layer)
-            if (typeof htmlToImage === 'undefined') {
-                const script = document.createElement('script');
-                script.src = 'ext/html-to-image.js';
-                document.head.appendChild(script);
-                await new Promise((resolve, reject) => {
-                    script.onload = resolve;
-                    script.onerror = reject;
-                });
-            }
+            const finalCanvas = await this._buildScreenshotCanvas(targetWidth, targetHeight);
+            const outW = finalCanvas.width;
+            const outH = finalCanvas.height;
 
-            // Use target dimensions for export
-            const canvasRect = boardCanvas.getBoundingClientRect();
-            const w = targetWidth;
-            const h = targetHeight;
-            const scale = w / canvasRect.width;
-
-            const exportCanvas = document.createElement('canvas');
-            exportCanvas.width  = w;
-            exportCanvas.height = h;
-            const ctx = exportCanvas.getContext('2d');
-
-            // Helper: load any src into a resolved HTMLImageElement
-            const loadImg = (src) => new Promise((resolve, reject) => {
-                const img = new Image();
-                img.onload  = () => resolve(img);
-                img.onerror = reject;
-                img.src = src;
-            });
-
-            // ── Helper: serialise an SVG layer and stamp it onto the canvas ──
-            const drawSvgLayer = async (svgEl) => {
-                if (!svgEl) return;
-                const clone = svgEl.cloneNode(true);
-                clone.setAttribute('width',  String(w));
-                clone.setAttribute('height', String(h));
-                clone.setAttribute('xmlns',  'http://www.w3.org/2000/svg');
-                const svgStr = new XMLSerializer().serializeToString(clone);
-                const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
-                ctx.drawImage(await loadImg(dataUrl), 0, 0, w, h);
-            };
-
-            // ── Layer 1: parquet background ───────────────────────────────────
-            ctx.fillStyle = '#d9a66a';
-            ctx.fillRect(0, 0, w, h);
-            {
-                const parquetSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="120"><rect width="600" height="120" fill="#d9a66a"/><g stroke="#7a5832" stroke-width="0.6"><g fill="#e6bb7f"><rect x="0" y="0" width="300" height="12"/><rect x="300" y="0" width="300" height="12"/></g><g fill="#ebc996"><rect x="-40" y="12" width="300" height="12"/><rect x="260" y="12" width="300" height="12"/><rect x="560" y="12" width="300" height="12"/></g><g fill="#f0d7a8"><rect x="-120" y="24" width="300" height="12"/><rect x="180" y="24" width="300" height="12"/><rect x="480" y="24" width="300" height="12"/></g><g fill="#e4c08d"><rect x="-200" y="36" width="300" height="12"/><rect x="100" y="36" width="300" height="12"/><rect x="400" y="36" width="300" height="12"/></g><g fill="#efd3a3"><rect x="-80" y="48" width="300" height="12"/><rect x="220" y="48" width="300" height="12"/><rect x="520" y="48" width="300" height="12"/></g><g fill="#e9c894"><rect x="-160" y="60" width="300" height="12"/><rect x="140" y="60" width="300" height="12"/><rect x="440" y="60" width="300" height="12"/></g><g fill="#f2deb5"><rect x="-20" y="72" width="300" height="12"/><rect x="280" y="72" width="300" height="12"/></g><g fill="#e3c18c"><rect x="-100" y="84" width="300" height="12"/><rect x="200" y="84" width="300" height="12"/><rect x="500" y="84" width="300" height="12"/></g><g fill="#edd2a6"><rect x="-220" y="96" width="300" height="12"/><rect x="80" y="96" width="300" height="12"/><rect x="380" y="96" width="300" height="12"/></g><g fill="#e7c795"><rect x="-60" y="108" width="300" height="12"/><rect x="240" y="108" width="300" height="12"/><rect x="540" y="108" width="300" height="12"/></g></g></svg>`;
-                const parquetUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(parquetSvg);
-                try {
-                    const parquetImg = await loadImg(parquetUrl);
-                    const tileH = Math.round(h / 5);
-                    const tileW = tileH * 5;
-                    let startX = ((w / 2 - tileW / 2) % tileW + tileW) % tileW - tileW;
-                    let startY = ((h / 2 - tileH / 2) % tileH + tileH) % tileH - tileH;
-                    for (let x = startX; x < w; x += tileW) {
-                        for (let y = startY; y < h; y += tileH) {
-                            ctx.drawImage(parquetImg, x, y, tileW, tileH);
-                        }
-                    }
-                } catch (_) { /* keep solid colour fallback */ }
-            }
-
-            // ── Layer 2: court SVG ───────────────────────────────────────────
-            {
-                const courtEl = document.getElementById('court-svg');
-                const svgText = new XMLSerializer().serializeToString(courtEl);
-                const sized = svgText.replace(
-                    /(<svg\b[^>]*?)(\s*\/>|>)/,
-                    `$1 width="${w}" height="${h}"$2`
-                );
-                const courtUrl = 'data:image/svg+xml;charset=utf-8,' +
-                                 encodeURIComponent(sized);
-                ctx.globalAlpha = 0.8;
-                ctx.drawImage(await loadImg(courtUrl), 0, 0, w, h);
-                ctx.globalAlpha = 1;
-            }
-
-            // ── Layer 3: in-progress drawings ────────────────────────────────
-            await drawSvgLayer(document.getElementById('drawing-layer'));
-
-            // ── Layer 4: completed paths / arrows ────────────────────────────
-            await drawSvgLayer(document.getElementById('paths-layer'));
-
-            // ── Layer 5: players, balls, plates, elements, shapes (DOM) ──────
-            const playersLayer = document.getElementById('players-layer');
-            if (playersLayer) {
-                const opts = {
-                    backgroundColor: null,
-                    skipFonts:       true,
-                };
-                if (!App._htmlToImageWarmed) {
-                    await htmlToImage.toCanvas(playersLayer, { ...opts, pixelRatio: 0.1 });
-                    App._htmlToImageWarmed = true;
-                }
-
-                const entityCanvas = await htmlToImage.toCanvas(playersLayer, {
-                    ...opts, pixelRatio: scale,
-                });
-
-                const boardArea  = document.getElementById('board-area');
-                const cropX = Math.round(parseFloat(boardArea.style.left || '0') * scale);
-                const cropY = Math.round(parseFloat(boardArea.style.top  || '0') * scale);
-                ctx.drawImage(entityCanvas, cropX, cropY, w, h, 0, 0, w, h);
-            }
-
-            // ── Copy to clipboard ──────────────────────────────────────────────
-            const blob = await new Promise(resolve => exportCanvas.toBlob(resolve, 'image/png'));
+            const blob = await new Promise(resolve => finalCanvas.toBlob(resolve, 'image/png'));
 
             await navigator.clipboard.write([
-                new ClipboardItem({
-                    'image/png': blob
-                })
+                new ClipboardItem({ 'image/png': blob })
             ]);
 
-            Utils.showToast(`Copied to clipboard (${w}×${h})`, 'success');
+            Utils.showToast(`Copied to clipboard (${outW}×${outH})`, 'success');
 
         } catch (error) {
             console.error('Copy to clipboard failed:', error);
@@ -2049,6 +2213,12 @@ const App = {
             // Get fresh menu reference each time (fixes bug where menu becomes stale)
             const menu = document.getElementById('board-canvas-context-menu');
             if (!menu) return;
+
+            // Update the current angle display
+            const angleDisplay = document.getElementById('board-angle-display');
+            if (angleDisplay) {
+                angleDisplay.textContent = `Current Rotation: ${AppState.boardRotation || 0}°`;
+            }
 
             // Refresh the menu's disabled state each time it's shown
             const resetItem = menu.querySelector('[data-action="reset-to-parent"]');
@@ -2109,6 +2279,10 @@ const App = {
 
                 if (item.dataset.action === 'reset-to-parent') {
                     this.resetBoardToParent();
+                } else if (item.dataset.action === 'rotate-left') {
+                    this.rotateBoard(-90);
+                } else if (item.dataset.action === 'rotate-right') {
+                    this.rotateBoard(90);
                 }
             };
 
@@ -2223,6 +2397,196 @@ const App = {
         Drawings.render();
         if (typeof Animations !== 'undefined') {
             Animations.renderParentPaths();
+        }
+    },
+
+    // Update the visual rotation of all board layers
+    updateBoardVisualRotation() {
+        const courtSvg = document.getElementById('court-svg');
+        const boardCanvas = document.getElementById('board-canvas');
+        const pathsLayer = document.getElementById('paths-layer');
+        const drawingLayer = document.getElementById('drawing-layer');
+        const playersLayer = document.getElementById('players-layer');
+        const rotation = AppState.boardRotation || 0;
+
+        // Use the scale factor calculated by Board.resize()
+        // This is already stored in AppState.boardRotationScaleFactor
+        // We don't recalculate here to avoid getBoundingClientRect() zoom issues
+        const scaleFactor = AppState.boardRotationScaleFactor || 1;
+
+        // Rotate ALL layers together (court SVG, board canvas, paths, drawings, and players-layer)
+        const transform = `rotate(${rotation}deg) scale(${scaleFactor})`;
+        const layers = [courtSvg, boardCanvas, pathsLayer, drawingLayer, playersLayer];
+        layers.forEach(layer => {
+            if (layer) {
+                layer.style.transformOrigin = 'center center';
+                layer.style.transform = transform;
+            }
+        });
+
+        // Note: Individual non-rotatable elements (cones, poles, balls, plates) and text
+        // apply counter-rotation to stay upright within the rotated coordinate system.
+        // Element positions are mathematically rotated in the rotateBoard() function.
+    },
+
+    // Rotate the board by the given angle (90 or -90 degrees)
+    rotateBoard(angleDegrees) {
+        // Initialize rotation property for elements that don't have it yet
+        AppState.elements.forEach(element => {
+            if (Elements && Elements.supportsRotation && Elements.supportsRotation(element.type)) {
+                if (element.rotation === undefined) {
+                    element.rotation = AppState.boardRotation || 0;
+                }
+            }
+        });
+
+        // Update board rotation
+        AppState.boardRotation = ((AppState.boardRotation + angleDegrees) % 360 + 360) % 360;
+
+        // Resize canvas to account for new rotation scale factor
+        if (typeof Board !== 'undefined' && Board.resize) {
+            Board.resize();
+        }
+
+        // Update visual rotation of court
+        this.updateBoardVisualRotation();
+
+        // Board center point
+        const centerX = AppState.boardWidth / 2;
+        const centerY = AppState.boardHeight / 2;
+
+        // Convert angle to radians
+        const angleRad = (angleDegrees * Math.PI) / 180;
+        const cosAngle = Math.cos(angleRad);
+        const sinAngle = Math.sin(angleRad);
+
+        // Helper function to rotate a point around the center
+        const rotatePoint = (x, y) => {
+            const dx = x - centerX;
+            const dy = y - centerY;
+            return {
+                x: centerX + dx * cosAngle - dy * sinAngle,
+                y: centerY + dx * sinAngle + dy * cosAngle
+            };
+        };
+
+        // Players don't need rotation updates during board rotation
+        // They maintain their intrinsic rotation and the rendering code applies
+        // counter-rotation to keep labels upright: -(player.rotation + boardRotation)
+        AppState.players.forEach(player => {
+            player._explicitlySet = true;
+        });
+
+        // Balls and plates don't need coordinate rotation - layer transform handles it
+        // Just mark balls as explicitly set to preserve user-placed balls
+        AppState.balls.forEach(ball => {
+            ball._explicitlySet = true;
+        });
+
+        // Plates also don't need coordinate rotation
+        // (no changes needed for plates)
+
+        // Elements (goals, ladders, etc.) don't need rotation updates
+        // They maintain their intrinsic rotation and apply counter-rotation in rendering
+        // to maintain screen orientation regardless of board rotation
+        // (Non-rotatable elements like cones and poles also get counter-rotation in elements.js)
+
+        // DO NOT update element.rotation during board rotation - it should maintain the user-set value
+
+        // Shapes don't need rotation updates during board rotation
+        // The shape.rotation property maintains the user-set rotation value
+        // and the rendering applies it directly (shapes rotate with the board like physical objects)
+
+        // DO NOT update shape.rotation during board rotation - it should maintain the user-set value
+
+        // Path intermediates also don't need coordinate rotation - paths-layer transform handles it
+        // (no changes needed for path intermediates)
+
+        // Save and re-render
+        AppState.saveCurrentBoard();
+        AppState.saveToLocalStorage();
+
+        // Re-render all components
+        Players.render();
+        Balls.render();
+        Elements.render();
+        Plates.render();
+        Shapes.render();
+        Drawings.render();
+        if (typeof Animations !== 'undefined') {
+            Animations.renderParentPaths();
+        }
+
+        // Restore rotation handles after render
+        if (typeof Players !== 'undefined' && Players.updateRotationHandle) {
+            Players.updateRotationHandle();
+        }
+        if (typeof Shapes !== 'undefined' && Shapes.updateHandles) {
+            Shapes.updateHandles();
+        }
+        if (typeof Elements !== 'undefined' && Elements.updateRotationHandle) {
+            Elements.updateRotationHandle();
+        }
+
+        // Update rotation display in settings tab
+        this.updateBoardRotationDisplay();
+    },
+
+    // Update board rotation display in settings tab
+    updateBoardRotationDisplay() {
+        const rotationDisplay = document.getElementById('board-rotation-display');
+        if (rotationDisplay) {
+            rotationDisplay.textContent = `${AppState.boardRotation || 0}°`;
+        }
+    },
+
+    // Setup board rotation controls in settings tab
+    setupBoardRotationControls() {
+        const btnRotateLeft = document.getElementById('btn-rotate-left');
+        const btnRotateRight = document.getElementById('btn-rotate-right');
+        const btnResetRotation = document.getElementById('btn-reset-rotation');
+
+        // Initialize display
+        this.updateBoardRotationDisplay();
+
+        // Rotate left button - reuses existing rotateBoard function
+        if (btnRotateLeft) {
+            btnRotateLeft.addEventListener('click', () => {
+                this.rotateBoard(-90);
+            });
+        }
+
+        // Rotate right button - reuses existing rotateBoard function
+        if (btnRotateRight) {
+            btnRotateRight.addEventListener('click', () => {
+                this.rotateBoard(90);
+            });
+        }
+
+        // Reset rotation button
+        if (btnResetRotation) {
+            btnResetRotation.addEventListener('click', () => {
+                // Simply reset board rotation to 0
+                // Element, player, and shape rotations maintain their intrinsic values
+                // and the rendering code applies appropriate transforms
+                AppState.boardRotation = 0;
+
+                // Resize canvas to account for rotation change
+                if (typeof Board !== 'undefined' && Board.resize) {
+                    Board.resize();
+                }
+
+                // Update visual rotation
+                this.updateBoardVisualRotation();
+
+                // Save and re-render
+                AppState.saveCurrentBoard();
+                AppState.saveToLocalStorage();
+                this.render();
+
+                // Update display
+                this.updateBoardRotationDisplay();
+            });
         }
     },
 
