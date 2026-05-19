@@ -9,6 +9,9 @@ const Shapes = {
     isResizing: false,
     resizeDirection: null,
     resizeCornerOffset: null,
+    // Rotation drag state: initial values captured at mousedown
+    rotationDragInitialAngle: null,
+    rotationDragInitialShapeRotation: null,
 
     /** Sets up the shape drawing layer, tool handlers, and context-menu event listeners. */
     init() {
@@ -187,13 +190,18 @@ const Shapes = {
         const color = '#000000';
         const fillColor = 'rgba(0, 0, 0, 0.15)';
 
+        // Adjust stroke width for board rotation scale factor
+        const scaleFactor = AppState.boardRotationScaleFactor || 1;
+        const lineStrokeWidth = 2 / scaleFactor;
+        const shapeStrokeWidth = 3 / scaleFactor;
+
         if (shapeType === 'line' || shapeType === 'arrow') {
             svg.setAttribute('viewBox', `-${width/2} -10 ${width} 20`);
             svg.setAttribute('width', screenWidth);
             svg.setAttribute('height', 20 * scaleY);
 
             if (shapeType === 'line') {
-                content = `<rect x="${-width/2}" y="-10" width="${width}" height="20" fill="transparent" pointer-events="none"/><line x1="${-width/2}" y1="0" x2="${width/2}" y2="0" stroke="${color}" stroke-width="2" fill="none" vector-effect="non-scaling-stroke" pointer-events="none"/>`;
+                content = `<rect x="${-width/2}" y="-10" width="${width}" height="20" fill="transparent" pointer-events="none"/><line x1="${-width/2}" y1="0" x2="${width/2}" y2="0" stroke="${color}" stroke-width="${lineStrokeWidth}" fill="none" vector-effect="non-scaling-stroke" pointer-events="none"/>`;
             } else {
                 content = `
                     <rect x="${-width/2}" y="-10" width="${width}" height="20" fill="transparent" pointer-events="none"/>
@@ -202,7 +210,7 @@ const Shapes = {
                             <polygon points="0,0 10,5 0,10" fill="${color}"/>
                         </marker>
                     </defs>
-                    <line x1="${-width/2}" y1="0" x2="${width/2}" y2="0" stroke="${color}" stroke-width="2" fill="none" marker-end="url(#arrowhead-preview)" vector-effect="non-scaling-stroke" pointer-events="none"/>
+                    <line x1="${-width/2}" y1="0" x2="${width/2}" y2="0" stroke="${color}" stroke-width="${lineStrokeWidth}" fill="none" marker-end="url(#arrowhead-preview)" vector-effect="non-scaling-stroke" pointer-events="none"/>
                 `;
             }
         } else {
@@ -219,14 +227,14 @@ const Shapes = {
                 const rectY = margin;
                 const rectWidth = width - (margin * 2);
                 const rectHeight = height - (margin * 2);
-                content = `<rect x="${rectX}" y="${rectY}" width="${rectWidth}" height="${rectHeight}" fill="${fillColor}" stroke="${color}" stroke-width="3" vector-effect="non-scaling-stroke" pointer-events="none"/>`;
+                content = `<rect x="${rectX}" y="${rectY}" width="${rectWidth}" height="${rectHeight}" fill="${fillColor}" stroke="${color}" stroke-width="${shapeStrokeWidth}" vector-effect="non-scaling-stroke" pointer-events="none"/>`;
             } else if (shapeType === 'ellipse') {
                 const margin = 5;
                 const cx = width / 2;
                 const cy = height / 2;
                 const rx = (width / 2) - margin;
                 const ry = (height / 2) - margin;
-                content = `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${fillColor}" stroke="${color}" stroke-width="3" vector-effect="non-scaling-stroke" pointer-events="none"/>`;
+                content = `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${fillColor}" stroke="${color}" stroke-width="${shapeStrokeWidth}" vector-effect="non-scaling-stroke" pointer-events="none"/>`;
             } else if (shapeType === 'text') {
                 const cx = width / 2;
                 const cy = height / 2;
@@ -392,13 +400,12 @@ const Shapes = {
                         AppState.draggedShape = shape;
                         AppState.updatePositionDisplay(shape.x, shape.y, shape, 'shape');
 
-                        const rect = AppState.canvas.getBoundingClientRect();
-                        const scaleX = AppState.boardWidth / rect.width;
-                        const scaleY = AppState.boardHeight / rect.height;
-
+                        // Calculate drag offset to prevent jump when dragging from edge
+                        // Use screenToBoardCoords to account for rotation
+                        const boardCoords = Utils.screenToBoardCoords(e.clientX, e.clientY);
                         AppState.dragOffset = {
-                            x: (e.clientX - rect.left) * scaleX - shape.x,
-                            y: (e.clientY - rect.top) * scaleY - shape.y
+                            x: boardCoords.x - shape.x,
+                            y: boardCoords.y - shape.y
                         };
                     }
 
@@ -448,8 +455,14 @@ const Shapes = {
             selectedKey: 'selectedShape',
             type: 'shape',
             updateDOM: (el, x, y, pxW, pxH) => {
-                el.style.left = (x * (pxW / AppState.boardWidth))  + 'px';
-                el.style.top  = (y * (pxH / AppState.boardHeight)) + 'px';
+                // Use canvas dimensions (not getBoundingClientRect) to match initial positioning
+                const canvasWidth = AppState.canvas.width;
+                const canvasHeight = AppState.canvas.height;
+                const pixelScaleX = canvasWidth / AppState.boardWidth;
+                const pixelScaleY = canvasHeight / AppState.boardHeight;
+
+                el.style.left = (x * pixelScaleX) + 'px';
+                el.style.top  = (y * pixelScaleY) + 'px';
                 // rotation transform is maintained from original render
 
                 // Update touch overlay position if it exists
@@ -457,8 +470,8 @@ const Shapes = {
                     const overlay = this.layer.querySelector(`.touch-overlay[data-shape="${el.dataset.shape}"]`);
                     if (overlay) {
                         const yOffset = parseFloat(overlay.dataset.yOffset || '0');
-                        overlay.style.left = (x * (pxW / AppState.boardWidth))  + 'px';
-                        overlay.style.top  = (y * (pxH / AppState.boardHeight) + yOffset) + 'px';
+                        overlay.style.left = (x * pixelScaleX) + 'px';
+                        overlay.style.top  = (y * pixelScaleY + yOffset) + 'px';
                     }
                 }
 
@@ -537,6 +550,8 @@ const Shapes = {
         document.addEventListener('mouseup', () => {
             if (this.isRotating) {
                 this.isRotating = false;
+                this.rotationDragInitialAngle = null;
+                this.rotationDragInitialShapeRotation = null;
                 AppState.saveToLocalStorage();
                 AppState.hidePositionDisplay();
             }
@@ -557,22 +572,29 @@ const Shapes = {
         const shape = AppState.getShape(AppState.selectedShape);
         if (!shape) return;
 
-        const canvasRect = AppState.canvas.getBoundingClientRect();
-        const scaleX = canvasRect.width / AppState.boardWidth;
-        const scaleY = canvasRect.height / AppState.boardHeight;
+        // Get mouse position in board coordinates (properly accounts for board rotation via DOMMatrix)
+        const mouseBoardPos = Utils.screenToBoardCoords(e.clientX, e.clientY);
 
-        const centerX = shape.x * scaleX;
-        const centerY = shape.y * scaleY;
+        // Compute the angle from the shape centre to the current mouse position.
+        const currentAngle = Math.atan2(mouseBoardPos.y - shape.y, mouseBoardPos.x - shape.x);
 
-        const mouseX = e.clientX - canvasRect.left;
-        const mouseY = e.clientY - canvasRect.top;
+        if (this.rotationDragInitialAngle !== null) {
+            // Delta approach: apply the angular change since mousedown to the
+            // initial shape rotation.  This prevents the shape from jumping when
+            // the drag starts because the rotation handle is not directly below
+            // the mouse cursor.
+            let delta = currentAngle - this.rotationDragInitialAngle;
+            // Wrap delta to [-π, π] to avoid 360° flips
+            while (delta > Math.PI)  delta -= 2 * Math.PI;
+            while (delta < -Math.PI) delta += 2 * Math.PI;
 
-        // Calculate angle
-        const angle = Math.atan2(mouseY - centerY, mouseX - centerX);
-        const degrees = (angle * 180 / Math.PI) + 90;
-
-        // Normalize to 0-360
-        shape.rotation = ((degrees % 360) + 360) % 360;
+            const degrees = this.rotationDragInitialShapeRotation + delta * 180 / Math.PI;
+            shape.rotation = ((degrees % 360) + 360) % 360;
+        } else {
+            // Fallback (no initial angle recorded): absolute angle
+            const degrees = (currentAngle * 180 / Math.PI) + 90;
+            shape.rotation = ((degrees % 360) + 360) % 360;
+        }
 
         // Update display
         AppState.updatePositionDisplay(shape.x, shape.y, shape, 'shape');
@@ -580,8 +602,9 @@ const Shapes = {
         // Update SVG transform directly without full re-render
         const shapeSvg = document.getElementById(shape.id);
         if (shapeSvg) {
-            const width = shape.width * scaleX;
-            const height = shape.height * scaleY;
+            const referenceScale = AppState.referenceScale;
+            const width = shape.width * referenceScale;
+            const height = shape.height * referenceScale;
 
             // Update rotation based on shape type
             if (shape.type === 'line' || shape.type === 'arrow') {
@@ -589,7 +612,14 @@ const Shapes = {
                 shapeSvg.style.transform = `translate(${-width/2}px, ${-lineH/2}px) rotate(${shape.rotation}deg)`;
                 shapeSvg.style.transformOrigin = `${width/2}px ${lineH/2}px`;
             } else {
-                shapeSvg.style.transform = `translate(${-width/2}px, ${-height/2}px) rotate(${shape.rotation}deg)`;
+                // Text rotates with the board. Additionally flip 180° if the net rotation
+                // would make text read right-to-left (cos of net angle < 0).
+                let svgRotation = shape.rotation;
+                if (shape.type === 'text') {
+                    const net = ((shape.rotation || 0) + (AppState.boardRotation || 0)) * Math.PI / 180;
+                    if (Math.cos(net) < 0) svgRotation += 180;
+                }
+                shapeSvg.style.transform = `translate(${-width/2}px, ${-height/2}px) rotate(${svgRotation}deg)`;
                 shapeSvg.style.transformOrigin = `${width/2}px ${height/2}px`;
             }
         }
@@ -619,12 +649,10 @@ const Shapes = {
         const shape = AppState.getShape(AppState.selectedShape);
         if (!shape || !this.resizeDirection) return;
 
-        const rect = AppState.canvas.getBoundingClientRect();
-        const scaleX = AppState.boardWidth / rect.width;
-        const scaleY = AppState.boardHeight / rect.height;
-
-        const mouseX = (e.clientX - rect.left) * scaleX;
-        const mouseY = (e.clientY - rect.top) * scaleY;
+        // Use screenToBoardCoords to correctly account for board rotation (CSS transform)
+        const boardPos = Utils.screenToBoardCoords(e.clientX, e.clientY);
+        const mouseX = boardPos.x;
+        const mouseY = boardPos.y;
 
         // For lines and arrows, move only one end
         if (shape.type === 'line' || shape.type === 'arrow') {
@@ -662,6 +690,8 @@ const Shapes = {
         } else if (shape.type === 'rectangle' || shape.type === 'ellipse') {
             // For rectangles and ellipses, resize from edge midpoint or corner
             if (this.resizeCornerOffset) {
+                // mouseX/mouseY from screenToBoardCoords are already in board space (unrotated)
+                // so we only need the shape's rotation, not board rotation
                 const rotation = (shape.rotation || 0) * Math.PI / 180;
 
                 if (this.resizeDirection === 'corner') {
@@ -669,19 +699,29 @@ const Shapes = {
                     const offsetX = this.resizeCornerOffset.x;
                     const offsetY = this.resizeCornerOffset.y;
 
-                    // Fixed corner is opposite to the dragged corner
+                    // Fixed corner is opposite to the dragged corner (use shape rotation)
                     const fixedCornerX = shape.x - Math.cos(rotation) * offsetX + Math.sin(rotation) * offsetY;
                     const fixedCornerY = shape.y - Math.sin(rotation) * offsetX - Math.cos(rotation) * offsetY;
 
                     const dx = mouseX - fixedCornerX;
                     const dy = mouseY - fixedCornerY;
 
-                    const newWidth = Math.max(50, Math.abs(dx * Math.cos(rotation) + dy * Math.sin(rotation)));
-                    const newHeight = Math.max(50, Math.abs(-dx * Math.sin(rotation) + dy * Math.cos(rotation)));
+                    // Use rotation for mouse projections.
+                    // Clamp each axis so the dragged corner cannot cross the fixed corner.
+                    // offsetX/Y give the sign that indicates which corner is being dragged.
+                    const minSize = 50;
+                    const rawW = dx * Math.cos(rotation) + dy * Math.sin(rotation);
+                    const rawH = -dx * Math.sin(rotation) + dy * Math.cos(rotation);
+                    const clampedW = offsetX > 0 ? Math.max(minSize, rawW) : Math.min(-minSize, rawW);
+                    const clampedH = offsetY > 0 ? Math.max(minSize, rawH) : Math.min(-minSize, rawH);
 
-                    const centerOffsetX = (dx * Math.cos(rotation) + dy * Math.sin(rotation)) / 2;
-                    const centerOffsetY = (-dx * Math.sin(rotation) + dy * Math.cos(rotation)) / 2;
+                    const newWidth = Math.abs(clampedW);
+                    const newHeight = Math.abs(clampedH);
 
+                    const centerOffsetX = clampedW / 2;
+                    const centerOffsetY = clampedH / 2;
+
+                    // Use shape rotation for positioning
                     shape.x = fixedCornerX + Math.cos(rotation) * centerOffsetX - Math.sin(rotation) * centerOffsetY;
                     shape.y = fixedCornerY + Math.sin(rotation) * centerOffsetX + Math.cos(rotation) * centerOffsetY;
                     shape.width = newWidth;
@@ -697,13 +737,18 @@ const Shapes = {
                     const fixedEdgeY = shape.y + Math.sin(rotation) * fixedEdgeOffset;
 
                     // Project mouse position onto the width axis (from fixed edge)
+                    // Use rotation to account for board rotation
                     const dx = mouseX - fixedEdgeX;
                     const dy = mouseY - fixedEdgeY;
                     const distanceAlongWidth = dx * Math.cos(rotation) + dy * Math.sin(rotation);
 
-                    // New width and center
-                    const newWidth = Math.max(50, Math.abs(distanceAlongWidth));
-                    const centerOffset = (distanceAlongWidth >= 0 ? newWidth : -newWidth) / 2;
+                    // Clamp: preserve direction so the dragged edge cannot cross the fixed edge.
+                    // isRightEdge=true → distance must be positive (≥ min); false → negative (≤ -min).
+                    const clampedWidth = isRightEdge
+                        ? Math.max(50, distanceAlongWidth)
+                        : Math.min(-50, distanceAlongWidth);
+                    const newWidth = Math.abs(clampedWidth);
+                    const centerOffset = clampedWidth / 2;
 
                     shape.x = fixedEdgeX + Math.cos(rotation) * centerOffset;
                     shape.y = fixedEdgeY + Math.sin(rotation) * centerOffset;
@@ -719,13 +764,18 @@ const Shapes = {
                     const fixedEdgeY = shape.y + Math.cos(rotation) * fixedEdgeOffset;
 
                     // Project mouse position onto the height axis (from fixed edge)
+                    // Use rotation to account for board rotation
                     const dx = mouseX - fixedEdgeX;
                     const dy = mouseY - fixedEdgeY;
                     const distanceAlongHeight = -dx * Math.sin(rotation) + dy * Math.cos(rotation);
 
-                    // New height and center
-                    const newHeight = Math.max(50, Math.abs(distanceAlongHeight));
-                    const centerOffset = (distanceAlongHeight >= 0 ? newHeight : -newHeight) / 2;
+                    // Clamp: preserve direction so the dragged edge cannot cross the fixed edge.
+                    // isBottomEdge=true → distance must be positive (≥ min); false → negative (≤ -min).
+                    const clampedHeight = isBottomEdge
+                        ? Math.max(50, distanceAlongHeight)
+                        : Math.min(-50, distanceAlongHeight);
+                    const newHeight = Math.abs(clampedHeight);
+                    const centerOffset = clampedHeight / 2;
 
                     shape.x = fixedEdgeX - Math.sin(rotation) * centerOffset;
                     shape.y = fixedEdgeY + Math.cos(rotation) * centerOffset;
@@ -741,13 +791,13 @@ const Shapes = {
             if (this.resizeDirection === 'text') {
                 // For text, use initial state to calculate smooth scale factor
                 if (this.initialTextFontSize && this.initialTextHandleDistance) {
-                    const canvasRect = AppState.canvas.getBoundingClientRect();
-                    const pixelScaleX = canvasRect.width / AppState.boardWidth;
-                    const pixelScaleY = canvasRect.height / AppState.boardHeight;
-
-                    // Calculate current mouse distance from shape center in pixels
-                    const shapeCenterScreenX = canvasRect.left + shape.x * pixelScaleX;
-                    const shapeCenterScreenY = canvasRect.top + shape.y * pixelScaleY;
+                    // Use boardToScreenCoords to correctly compute the shape center in screen
+                    // space, accounting for the board's CSS rotation transform.
+                    const container = document.querySelector('.board-container');
+                    const containerRect = container.getBoundingClientRect();
+                    const centerPos = Utils.boardToScreenCoords(shape.x, shape.y);
+                    const shapeCenterScreenX = containerRect.left + centerPos.x;
+                    const shapeCenterScreenY = containerRect.top  + centerPos.y;
 
                     const mouseDx = e.clientX - shapeCenterScreenX;
                     const mouseDy = e.clientY - shapeCenterScreenY;
@@ -783,17 +833,21 @@ const Shapes = {
             }
         }
 
-        // Update SVG directly without full re-render
+        // Update SVG directly without full re-render.
+        // Use canvas.width/height (natural pre-CSS-transform dimensions) for position
+        // scale factors – getBoundingClientRect() returns post-transform visual
+        // dimensions that have width/height swapped at 90°/270° board rotation.
+        // Size uses referenceScale (same as createShapeSvg) so shapes scale uniformly.
         const shapeSvg = document.getElementById(shape.id);
         if (shapeSvg) {
-            const canvasRect = AppState.canvas.getBoundingClientRect();
-            const pixelScaleX = canvasRect.width / AppState.boardWidth;
-            const pixelScaleY = canvasRect.height / AppState.boardHeight;
+            const posScaleX = AppState.canvas.width  / AppState.boardWidth;
+            const posScaleY = AppState.canvas.height / AppState.boardHeight;
+            const referenceScale = AppState.referenceScale || Math.min(posScaleX, posScaleY);
 
-            const x = shape.x * pixelScaleX;
-            const y = shape.y * pixelScaleY;
-            const width = shape.width * pixelScaleX;
-            const height = shape.height * pixelScaleY;
+            const x      = shape.x      * posScaleX;
+            const y      = shape.y      * posScaleY;
+            const width  = shape.width  * referenceScale;
+            const height = shape.height * referenceScale;
 
             // Update SVG position
             shapeSvg.style.left = x + 'px';
@@ -801,7 +855,7 @@ const Shapes = {
 
             // Update dimensions, transform, and content based on shape type
             if (shape.type === 'line' || shape.type === 'arrow') {
-                const lineH = Math.max(20 * pixelScaleY, 20);
+                const lineH = Math.max(20 * referenceScale, 20);
                 shapeSvg.setAttribute('width', width);
                 shapeSvg.setAttribute('height', lineH);
                 shapeSvg.setAttribute('viewBox', `-${shape.width/2} -10 ${shape.width} 20`);
@@ -829,7 +883,15 @@ const Shapes = {
                 shapeSvg.setAttribute('viewBox', `0 0 ${viewBoxWidth} ${viewBoxHeight}`);
                 shapeSvg.setAttribute('width', width);
                 shapeSvg.setAttribute('height', height);
-                shapeSvg.style.transform = `translate(${-width/2}px, ${-height/2}px) rotate(${shape.rotation || 0}deg)`;
+
+                // Text rotates with the board. Additionally flip 180° if the net rotation
+                // would make text read right-to-left (cos of net angle < 0).
+                let svgRotation = shape.rotation || 0;
+                if (shape.type === 'text') {
+                    const net = ((shape.rotation || 0) + (AppState.boardRotation || 0)) * Math.PI / 180;
+                    if (Math.cos(net) < 0) svgRotation += 180;
+                }
+                shapeSvg.style.transform = `translate(${-width/2}px, ${-height/2}px) rotate(${svgRotation}deg)`;
                 shapeSvg.style.transformOrigin = `${width/2}px ${height/2}px`;
 
                 // Update shape content elements using actual shape dimensions
@@ -978,65 +1040,116 @@ const Shapes = {
 
         const shape = AppState.getShape(AppState.selectedShape);
         if (!shape) return;
-        const canvasRect = AppState.canvas.getBoundingClientRect();
-        const scaleX = canvasRect.width / AppState.boardWidth;
-        const scaleY = canvasRect.height / AppState.boardHeight;
 
-        const centerX = shape.x * scaleX;
-        const centerY = shape.y * scaleY;
+        const canvasWidth = AppState.canvas.width;
+        const canvasHeight = AppState.canvas.height;
+        const posScaleX = canvasWidth / AppState.boardWidth;
+        const posScaleY = canvasHeight / AppState.boardHeight;
+        const positionScale = Math.min(posScaleX, posScaleY);
+
+        const referenceScale = AppState.referenceScale || positionScale;
+        const scaleX = referenceScale;
+        const scaleY = referenceScale;
+
+        // Convert shape center from board to canvas (pre-CSS-transform) coordinates.
+        // Board.boardToScreen uses separate X/Y scales, so it is correct at any board rotation.
+        const boardCenter = Board.boardToScreen(shape.x, shape.y);
+        const centerX = boardCenter.x;
+        const centerY = boardCenter.y;
 
         // Update rotation handle if it exists
         if (this.rotationHandle) {
-            const handleDistance = (shape.height || 0) / 2 * scaleY + 50;
+            const centerPos = boardCenter;
+
+            const handleDistance = ((shape.height || 0) / 2 * scaleY + 50) / (AppState.boardRotationScaleFactor || 1);
             const rotation = (shape.rotation || 0) * Math.PI / 180;
 
-            const handleX = centerX + Math.cos(rotation - Math.PI / 2) * handleDistance;
-            const handleY = centerY + Math.sin(rotation - Math.PI / 2) * handleDistance;
+            // For text: flip handle offset by π if net rotation is right-to-left.
+            const boardRotRad = (AppState.boardRotation || 0) * Math.PI / 180;
+            const netRad = rotation + boardRotRad;
+            const textFlip = (shape.type === 'text' && Math.cos(netRad) < 0) ? Math.PI : 0;
+            const rotHandleAngle = (rotation - Math.PI / 2) + textFlip;
+
+            const handleX = centerPos.x + Math.cos(rotHandleAngle) * handleDistance;
+            const handleY = centerPos.y + Math.sin(rotHandleAngle) * handleDistance;
 
             const handleSize = 28;
-
-            // Check if handle is in board-container (needs offset) or board-area (no offset)
-            const isInBoardContainer = this.rotationHandle.parentElement?.classList.contains('board-container');
-            if (isInBoardContainer) {
-                const boardContainer = this.rotationHandle.parentElement;
-                const containerRect = boardContainer.getBoundingClientRect();
-                this.rotationHandle.style.left = (canvasRect.left - containerRect.left + handleX - handleSize / 2) + 'px';
-                this.rotationHandle.style.top = (canvasRect.top - containerRect.top + handleY - handleSize / 2) + 'px';
-            } else {
-                this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
-                this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
-            }
+            this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
+            this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
         }
 
         // Update resize handles if they exist
         if (this.resizeHandles.length > 0) {
             const rotation = (shape.rotation || 0) * Math.PI / 180;
-            const widthHalf = (shape.width / 2) * scaleX;
-            const heightHalf = (shape.height / 2) * scaleY;
+
+            // After 90° or 270° board rotation, visual dimensions are swapped
+            const boardRotDeg = AppState.boardRotation || 0;
+            let widthHalf, heightHalf;
+            if (boardRotDeg === 90 || boardRotDeg === 270) {
+                // Swap: visual width comes from shape height, visual height from shape width
+                widthHalf = (shape.height / 2) * scaleY;
+                heightHalf = (shape.width / 2) * scaleX;
+            } else {
+                widthHalf = (shape.width / 2) * scaleX;
+                heightHalf = (shape.height / 2) * scaleY;
+            }
+
             const handleSize = Math.max(15 * scaleX, 10);
 
+            // Inverse board rotation so offsets counteract the CSS transform on board-area
+            const boardRotation = -(AppState.boardRotation || 0) * Math.PI / 180;
+
             if (shape.type === 'line' || shape.type === 'arrow') {
-                // Right handle only
+                // Right handle only — at the arrowhead end.
+                // No inverse-board-rotation compensation: both the SVG and the handle live
+                // inside board-area and are subject to the same CSS transform.
                 if (this.resizeHandles[0]) {
-                    const rightX = centerX + Math.cos(rotation) * widthHalf;
-                    const rightY = centerY + Math.sin(rotation) * widthHalf;
+                    const lineHalf = (shape.width / 2) * scaleX;
+                    const offsetX = Math.cos(rotation) * lineHalf;
+                    const offsetY = Math.sin(rotation) * lineHalf;
+
+                    const rightX = centerX + offsetX;
+                    const rightY = centerY + offsetY;
                     this.resizeHandles[0].style.left = (rightX - handleSize / 2) + 'px';
                     this.resizeHandles[0].style.top = (rightY - handleSize / 2) + 'px';
+                    this.resizeHandles[0].style.cursor = this.resizeCursorForAngle(offsetX, offsetY);
                 }
             } else if (shape.type === 'circle') {
                 // Single handle for circle
                 if (this.resizeHandles[0]) {
-                    const rightX = centerX + Math.cos(rotation) * widthHalf;
-                    const rightY = centerY + Math.sin(rotation) * widthHalf;
+                    let offsetX = Math.cos(rotation) * widthHalf;
+                    let offsetY = Math.sin(rotation) * widthHalf;
+
+                    // Apply inverse board rotation to counter the CSS transform
+                    if (boardRotation !== 0) {
+                        const rotatedOffsetX = offsetX * Math.cos(boardRotation) - offsetY * Math.sin(boardRotation);
+                        const rotatedOffsetY = offsetX * Math.sin(boardRotation) + offsetY * Math.cos(boardRotation);
+                        offsetX = rotatedOffsetX;
+                        offsetY = rotatedOffsetY;
+                    }
+
+                    const rightX = centerX + offsetX;
+                    const rightY = centerY + offsetY;
                     this.resizeHandles[0].style.left = (rightX - handleSize / 2) + 'px';
                     this.resizeHandles[0].style.top = (rightY - handleSize / 2) + 'px';
+                    this.resizeHandles[0].style.cursor = this.resizeCursorForAngle(offsetX, offsetY);
                 }
             } else if (shape.type === 'text') {
                 // Text handle: position at right side of text, vertically centered
                 if (this.resizeHandles[0]) {
                     const svg = this.shapeSvgs[shape.id];
-                    let offsetX = widthHalf;
-                    let offsetY = 0;
+
+                    // The handle follows text. Flip 180° if net rotation is right-to-left.
+                    const netRotDeg = (shape.rotation || 0) + (AppState.boardRotation || 0);
+                    const shouldFlip = Math.cos(netRotDeg * Math.PI / 180) < 0;
+                    const totalRotDeg = (shape.rotation || 0) + (shouldFlip ? 180 : 0);
+                    const totalRot = totalRotDeg * Math.PI / 180;
+                    const cosR = Math.cos(totalRot);
+                    const sinR = Math.sin(totalRot);
+
+                    // Default fallback: right edge of shape bounding box
+                    let rawOffX = widthHalf;
+                    let rawOffY = 0;
 
                     if (svg) {
                         const textElement = svg.querySelector('text');
@@ -1044,66 +1157,67 @@ const Shapes = {
                             try {
                                 const bbox = textElement.getBBox();
 
-                                // Get SVG viewBox dimensions
-                                const svgViewBox = svg.getAttribute('viewBox').split(' ');
-                                const svgViewBoxWidth = parseFloat(svgViewBox[2]);
-                                const svgViewBoxHeight = parseFloat(svgViewBox[3]);
+                                // getBBox() may return a zero-size rect immediately after DOM
+                                // insertion.  Guard against this so the fallback widthHalf is used.
+                                if (bbox.width > 0) {
+                                    // Get SVG viewBox dimensions
+                                    const svgViewBox = svg.getAttribute('viewBox').split(' ');
+                                    const svgViewBoxWidth = parseFloat(svgViewBox[2]);
+                                    const svgViewBoxHeight = parseFloat(svgViewBox[3]);
 
-                                // Scale factor from viewBox to canvas
-                                const width = shape.width * scaleX;
-                                const height = shape.height * scaleY;
-                                const svgScaleX = width / svgViewBoxWidth;
-                                const svgScaleY = height / svgViewBoxHeight;
+                                    // Scale factor from viewBox to canvas
+                                    const width = shape.width * scaleX;
+                                    const height = shape.height * scaleY;
+                                    const svgScaleX = width / svgViewBoxWidth;
+                                    const svgScaleY = height / svgViewBoxHeight;
 
-                                // Right-center point in SVG coordinates
-                                const svgRightX = bbox.x + bbox.width;
-                                const svgCenterY = bbox.y + bbox.height / 2;
-
-                                // Center of SVG in viewBox coords
-                                const svgCenterInViewBoxX = svgViewBoxWidth / 2;
-                                const svgCenterInViewBoxY = svgViewBoxHeight / 2;
-
-                                // Offset from SVG center to right-center point (in viewBox coords)
-                                const offsetInViewBoxX = svgRightX - svgCenterInViewBoxX;
-                                const offsetInViewBoxY = svgCenterY - svgCenterInViewBoxY;
-
-                                // Convert to canvas pixels
-                                const pixelOffsetX = offsetInViewBoxX * svgScaleX;
-                                const pixelOffsetY = offsetInViewBoxY * svgScaleY;
-
-                                // Rotate the offset by the shape's rotation
-                                const rotation = (shape.rotation || 0) * Math.PI / 180;
-                                const cos = Math.cos(rotation);
-                                const sin = Math.sin(rotation);
-
-                                offsetX = pixelOffsetX * cos - pixelOffsetY * sin;
-                                offsetY = pixelOffsetX * sin + pixelOffsetY * cos;
+                                    // Right-center point offset from SVG center (in viewBox coords → canvas pixels)
+                                    rawOffX = (bbox.x + bbox.width - svgViewBoxWidth / 2) * svgScaleX;
+                                    rawOffY = (bbox.y + bbox.height / 2 - svgViewBoxHeight / 2) * svgScaleY;
+                                }
                             } catch (e) {
                                 // Fallback to shape.width
                             }
                         }
                     }
 
+                    const offsetX = rawOffX * cosR - rawOffY * sinR;
+                    const offsetY = rawOffX * sinR + rawOffY * cosR;
+
                     const rightX = centerX + offsetX;
                     const rightY = centerY + offsetY;
                     this.resizeHandles[0].style.left = (rightX - handleSize / 2) + 'px';
                     this.resizeHandles[0].style.top = (rightY - handleSize / 2) + 'px';
+                    this.resizeHandles[0].style.cursor = this.resizeCursorForAngle(offsetX, offsetY);
                 }
             } else {
                 // Rectangle and ellipse: 4 edge handles only (2 horizontal, 2 vertical)
+                // After inverse rotation, vertical handles swap: +height becomes -Y (top), -height becomes +Y (bottom)
                 const allHandlePositions = [
                     { x: widthHalf, y: 0 },
                     { x: -widthHalf, y: 0 },
-                    { x: 0, y: heightHalf },
-                    { x: 0, y: -heightHalf }
+                    { x: 0, y: -heightHalf },  // Top (negative Y)
+                    { x: 0, y: heightHalf }     // Bottom (positive Y)
                 ];
 
                 allHandlePositions.forEach((pos, i) => {
                     if (this.resizeHandles[i]) {
-                        const hx = centerX + Math.cos(rotation) * pos.x - Math.sin(rotation) * pos.y;
-                        const hy = centerY + Math.sin(rotation) * pos.x + Math.cos(rotation) * pos.y;
+                        let offsetX = Math.cos(rotation) * pos.x - Math.sin(rotation) * pos.y;
+                        let offsetY = Math.sin(rotation) * pos.x + Math.cos(rotation) * pos.y;
+
+                        // Apply inverse board rotation to counter the CSS transform
+                        if (boardRotation !== 0) {
+                            const rotatedOffsetX = offsetX * Math.cos(boardRotation) - offsetY * Math.sin(boardRotation);
+                            const rotatedOffsetY = offsetX * Math.sin(boardRotation) + offsetY * Math.cos(boardRotation);
+                            offsetX = rotatedOffsetX;
+                            offsetY = rotatedOffsetY;
+                        }
+
+                        const hx = centerX + offsetX;
+                        const hy = centerY + offsetY;
                         this.resizeHandles[i].style.left = (hx - handleSize / 2) + 'px';
                         this.resizeHandles[i].style.top = (hy - handleSize / 2) + 'px';
+                        this.resizeHandles[i].style.cursor = this.resizeCursorForAngle(offsetX, offsetY);
                     }
                 });
             }
@@ -1131,20 +1245,27 @@ const Shapes = {
                 return;
             }
 
-            const boardContainer = document.querySelector('.board-container');
-            const canvasRect = AppState.canvas.getBoundingClientRect();
-            const scaleX = canvasRect.width / AppState.boardWidth;
-            const scaleY = canvasRect.height / AppState.boardHeight;
+            // Convert shape center from board to canvas coordinates
+            const centerPos = Board.boardToScreen(shape.x, shape.y);
+            const centerX = centerPos.x;
+            const centerY = centerPos.y;
 
-            const centerX = shape.x * scaleX;
-            const centerY = shape.y * scaleY;
-
-            // Rotation handle
-            const handleDistance = (shape.height || 0) / 2 * scaleY + 50;
+            // Rotation handle - use referenceScale for consistent sizing
+            const referenceScale = AppState.referenceScale;
+            const handleDistance = ((shape.height || 0) / 2 * referenceScale + 50) / (AppState.boardRotationScaleFactor || 1);
             const rotation = (shape.rotation || 0) * Math.PI / 180;
 
-            const handleX = centerX + Math.cos(rotation - Math.PI / 2) * handleDistance;
-            const handleY = centerY + Math.sin(rotation - Math.PI / 2) * handleDistance;
+            // For text: flip rotation handle by π if net rotation is right-to-left.
+            const boardRotRad = (AppState.boardRotation || 0) * Math.PI / 180;
+            const netRad2 = rotation + boardRotRad;
+            const textFlip2 = (shape.type === 'text' && Math.cos(netRad2) < 0) ? Math.PI : 0;
+            const rotHandleAngle = (rotation - Math.PI / 2) + textFlip2;
+
+            const offsetX = Math.cos(rotHandleAngle) * handleDistance;
+            const offsetY = Math.sin(rotHandleAngle) * handleDistance;
+
+            const handleX = centerX + offsetX;
+            const handleY = centerY + offsetY;
 
             const handleSize = 28;
 
@@ -1153,15 +1274,9 @@ const Shapes = {
             this.rotationHandle.style.width = handleSize + 'px';
             this.rotationHandle.style.height = handleSize + 'px';
 
-            // Calculate position - if appending to board-container, use canvas offset
-            if (boardContainer) {
-                const containerRect = boardContainer.getBoundingClientRect();
-                this.rotationHandle.style.left = (canvasRect.left - containerRect.left + handleX - handleSize / 2) + 'px';
-                this.rotationHandle.style.top = (canvasRect.top - containerRect.top + handleY - handleSize / 2) + 'px';
-            } else {
-                this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
-                this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
-            }
+            // Position handle in canvas coordinates - will be rotated by board-area transform
+            this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
+            this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
 
             this.rotationHandle.addEventListener('mousedown', (e) => {
                 e.preventDefault();
@@ -1170,127 +1285,245 @@ const Shapes = {
                 AppState.draggedShape = null;
                 AppState.dragOffset = null;
                 this.isRotating = true;
+
+                // Record the starting angle (center → mouse in board coords) and
+                // current shape rotation so handleRotationMove can apply a delta
+                // instead of an absolute angle – this prevents the shape jumping.
+                const s = AppState.getShape(AppState.selectedShape);
+                if (s) {
+                    const startPos = Utils.screenToBoardCoords(e.clientX, e.clientY);
+                    this.rotationDragInitialAngle = Math.atan2(startPos.y - s.y, startPos.x - s.x);
+                    this.rotationDragInitialShapeRotation = s.rotation || 0;
+                }
+
                 AppState.updatePositionDisplay(shape.x, shape.y, shape, 'shape');
             });
 
-            // Append to board-area's parent (board-container) to ensure it's above all SVG elements
-            if (boardContainer) {
-                boardContainer.appendChild(this.rotationHandle);
-            } else {
-                this.layer.appendChild(this.rotationHandle);
-            }
+            // Append to board-area (same as players and elements) so it rotates with the board transform
+            this.layer.appendChild(this.rotationHandle);
 
             // Resize handles
-            this.createResizeHandles(shape, centerX, centerY, scaleX, scaleY);
+            this.createResizeHandles(shape, centerX, centerY, referenceScale, referenceScale);
+
+            // getBBox() on text SVGs returns zero immediately after DOM insertion.
+            // Schedule a second updateHandlesPosition() so the text handle is
+            // repositioned once the browser has laid out the SVG content.
+            if (shape.type === 'text') {
+                requestAnimationFrame(() => this.updateHandlesPosition());
+            }
         }
     },
 
     // Create resize handles
     createResizeHandles(shape, centerX, centerY, scaleX, scaleY) {
         const handleSize = Math.max(15 * scaleX, 10);
-        const widthHalf = (shape.width / 2) * scaleX;
-        const heightHalf = (shape.height / 2) * scaleY;
+
+        // After 90° or 270° board rotation, visual dimensions are swapped
+        // so we need to swap width/height scales
+        const boardRotDeg = AppState.boardRotation || 0;
+        let widthHalf, heightHalf;
+        if (boardRotDeg === 90 || boardRotDeg === 270) {
+            // Swap: visual width comes from shape height, visual height from shape width
+            widthHalf = (shape.height / 2) * scaleY;
+            heightHalf = (shape.width / 2) * scaleX;
+        } else {
+            widthHalf = (shape.width / 2) * scaleX;
+            heightHalf = (shape.height / 2) * scaleY;
+        }
 
         const rotation = (shape.rotation || 0) * Math.PI / 180;
+        // Apply inverse board rotation to counter the CSS transform
+        const boardRotation = -(AppState.boardRotation || 0) * Math.PI / 180;
 
-        // For lines and arrows, only horizontal resize
+        // For lines and arrows, only horizontal resize.
+        // Lines have no shape.height, so the dimension-swap at 90°/270° (widthHalf = shape.height/2)
+        // yields NaN.  Always use shape.width/2 (the actual half-length) here.
         if (shape.type === 'line' || shape.type === 'arrow') {
-            // Right handle
-            const rightX = centerX + Math.cos(rotation) * widthHalf;
-            const rightY = centerY + Math.sin(rotation) * widthHalf;
+            // Right handle — at the arrow-head end (positive side of the shape's own rotation).
+            // Both the SVG element and this handle live inside board-area, which inherits the
+            // same CSS transform from players-layer.  No inverse-board-rotation compensation
+            // is needed: the canvas-space offset places the handle at the arrowhead regardless
+            // of board rotation, because both are subject to the same CSS transform.
+            const lineHalf = (shape.width / 2) * scaleX;
+            const offsetX = Math.cos(rotation) * lineHalf;
+            const offsetY = Math.sin(rotation) * lineHalf;
 
-            const rightHandle = this.createResizeHandle(rightX, rightY, handleSize, 'horizontal');
+            const rightX = centerX + offsetX;
+            const rightY = centerY + offsetY;
+
+            const rightHandle = this.createResizeHandle(
+                rightX, rightY, handleSize, 'horizontal', null,
+                this.resizeCursorForAngle(offsetX, offsetY));
             this.resizeHandles.push(rightHandle);
             this.layer.appendChild(rightHandle);
         } else if (shape.type === 'circle') {
             // Circle: one handle for uniform scaling
-            const rightX = centerX + Math.cos(rotation) * widthHalf;
-            const rightY = centerY + Math.sin(rotation) * widthHalf;
+            let offsetX = Math.cos(rotation) * widthHalf;
+            let offsetY = Math.sin(rotation) * widthHalf;
 
-            const handle = this.createResizeHandle(rightX, rightY, handleSize, 'both');
+            // Apply inverse board rotation to counter the CSS transform
+            if (boardRotation !== 0) {
+                const rotatedOffsetX = offsetX * Math.cos(boardRotation) - offsetY * Math.sin(boardRotation);
+                const rotatedOffsetY = offsetX * Math.sin(boardRotation) + offsetY * Math.cos(boardRotation);
+                offsetX = rotatedOffsetX;
+                offsetY = rotatedOffsetY;
+            }
+
+            const rightX = centerX + offsetX;
+            const rightY = centerY + offsetY;
+
+            const handle = this.createResizeHandle(
+                rightX, rightY, handleSize, 'both', null,
+                this.resizeCursorForAngle(offsetX, offsetY));
             this.resizeHandles.push(handle);
             this.layer.appendChild(handle);
         } else if (shape.type === 'text') {
-            // Text: one handle for font size scaling at right side of text, vertically centered
+            // Text: one handle for font size scaling at right side of text.
+            // Handle follows text. Flip 180° if net rotation is right-to-left.
             const svg = this.shapeSvgs[shape.id];
-            let offsetX = widthHalf;
-            let offsetY = 0;
+
+            const netRotDeg2 = (shape.rotation || 0) + (AppState.boardRotation || 0);
+            const shouldFlip2 = Math.cos(netRotDeg2 * Math.PI / 180) < 0;
+            const totalRotDeg = (shape.rotation || 0) + (shouldFlip2 ? 180 : 0);
+            const totalRot = totalRotDeg * Math.PI / 180;
+            const cosR = Math.cos(totalRot);
+            const sinR = Math.sin(totalRot);
+
+            let rawOffX = widthHalf;
+            let rawOffY = 0;
 
             if (svg) {
                 const textElement = svg.querySelector('text');
                 if (textElement) {
                     try {
                         const bbox = textElement.getBBox();
-                        const canvasRect = AppState.canvas.getBoundingClientRect();
 
-                        // Get SVG viewBox dimensions
-                        const svgViewBox = svg.getAttribute('viewBox').split(' ');
-                        const svgViewBoxWidth = parseFloat(svgViewBox[2]);
-                        const svgViewBoxHeight = parseFloat(svgViewBox[3]);
+                        // getBBox() may return a zero-size rect if the SVG hasn't been
+                        // laid out by the browser yet (e.g. immediately after DOM insertion).
+                        // Guard against this so the fallback widthHalf is used instead.
+                        if (bbox.width > 0) {
+                            // Get SVG viewBox dimensions
+                            const svgViewBox = svg.getAttribute('viewBox').split(' ');
+                            const svgViewBoxWidth = parseFloat(svgViewBox[2]);
+                            const svgViewBoxHeight = parseFloat(svgViewBox[3]);
 
-                        // Scale factor from viewBox to canvas
-                        const width = shape.width * scaleX;
-                        const height = shape.height * scaleY;
-                        const svgScaleX = width / svgViewBoxWidth;
-                        const svgScaleY = height / svgViewBoxHeight;
+                            // Scale factor from viewBox to canvas
+                            const width = shape.width * scaleX;
+                            const height = shape.height * scaleY;
+                            const svgScaleX = width / svgViewBoxWidth;
+                            const svgScaleY = height / svgViewBoxHeight;
 
-                        // Right-center point in SVG coordinates
-                        const svgRightX = bbox.x + bbox.width;
-                        const svgCenterY = bbox.y + bbox.height / 2;
-
-                        // Center of SVG in viewBox coords
-                        const svgCenterInViewBoxX = svgViewBoxWidth / 2;
-                        const svgCenterInViewBoxY = svgViewBoxHeight / 2;
-
-                        // Offset from SVG center to right-center point (in viewBox coords)
-                        const offsetInViewBoxX = svgRightX - svgCenterInViewBoxX;
-                        const offsetInViewBoxY = svgCenterY - svgCenterInViewBoxY;
-
-                        // Convert to canvas pixels
-                        const pixelOffsetX = offsetInViewBoxX * svgScaleX;
-                        const pixelOffsetY = offsetInViewBoxY * svgScaleY;
-
-                        // Rotate the offset by the shape's rotation
-                        const rotation = (shape.rotation || 0) * Math.PI / 180;
-                        const cos = Math.cos(rotation);
-                        const sin = Math.sin(rotation);
-
-                        offsetX = pixelOffsetX * cos - pixelOffsetY * sin;
-                        offsetY = pixelOffsetX * sin + pixelOffsetY * cos;
+                            // Right-center point offset from SVG center (in viewBox coords → canvas pixels)
+                            rawOffX = (bbox.x + bbox.width - svgViewBoxWidth / 2) * svgScaleX;
+                            rawOffY = (bbox.y + bbox.height / 2 - svgViewBoxHeight / 2) * svgScaleY;
+                        }
                     } catch (e) {
                         // Fallback to shape.width
                     }
                 }
             }
 
+            const offsetX = rawOffX * cosR - rawOffY * sinR;
+            const offsetY = rawOffX * sinR + rawOffY * cosR;
+
+            // NO additional board rotation compensation needed since handles are inside
+            // board-area which is already CSS-rotated
             const rightX = centerX + offsetX;
             const rightY = centerY + offsetY;
 
-            const handle = this.createResizeHandle(rightX, rightY, handleSize, 'text');
+            const handle = this.createResizeHandle(
+                rightX, rightY, handleSize, 'text', null,
+                this.resizeCursorForAngle(offsetX, offsetY));
             this.resizeHandles.push(handle);
             this.layer.appendChild(handle);
         } else {
             // Rectangle and ellipse: 4 edge midpoint handles only (2 horizontal, 2 vertical)
-            const edges = [
-                { x: widthHalf, y: 0, dir: 'horizontal', offsetX: shape.width / 2, offsetY: 0 },
-                { x: -widthHalf, y: 0, dir: 'horizontal', offsetX: -shape.width / 2, offsetY: 0 },
-                { x: 0, y: heightHalf, dir: 'vertical', offsetX: 0, offsetY: shape.height / 2 },
-                { x: 0, y: -heightHalf, dir: 'vertical', offsetX: 0, offsetY: -shape.height / 2 }
-            ];
+            // After inverse rotation, vertical handles swap: +height becomes -Y (top), -height becomes +Y (bottom)
+            // At 90°/270° rotation, the visual edges map to different board-space edges:
+            // - Visual horizontal edges (x=±widthHalf) map to vertical board edges (offsetY=±height/2)
+            // - Visual vertical edges (y=±heightHalf) map to horizontal board edges (offsetX=±width/2)
+            // At 90°/270° rotation, the visual edges map to different board-space edges
+            // We need to explicitly set the board-space offset and direction for each handle
+            let edgeConfigs;
+            if (boardRotDeg === 90) {
+                // At 90° clockwise rotation with rotation fix:
+                // Vertical resize handles need offsetY flipped from the geometric mapping
+                // Horizontal resize handles use the correct geometric mapping
+                edgeConfigs = [
+                    { visualX: widthHalf, visualY: 0, boardOffsetX: 0, boardOffsetY: -shape.height / 2, dir: 'vertical' },
+                    { visualX: -widthHalf, visualY: 0, boardOffsetX: 0, boardOffsetY: shape.height / 2, dir: 'vertical' },
+                    { visualX: 0, visualY: -heightHalf, boardOffsetX: -shape.width / 2, boardOffsetY: 0, dir: 'horizontal' },
+                    { visualX: 0, visualY: heightHalf, boardOffsetX: shape.width / 2, boardOffsetY: 0, dir: 'horizontal' }
+                ];
+            } else if (boardRotDeg === 270) {
+                // At 270° clockwise rotation (90° counter-clockwise):
+                // Visual right → Board top (offsetY=-height/2, vertical resize)
+                // Visual left → Board bottom (offsetY=+height/2, vertical resize)
+                // Visual top → Board left (offsetX=-width/2, horizontal resize)
+                // Visual bottom → Board right (offsetX=+width/2, horizontal resize)
+                edgeConfigs = [
+                    { visualX: widthHalf, visualY: 0, boardOffsetX: 0, boardOffsetY: -shape.height / 2, dir: 'vertical' },
+                    { visualX: -widthHalf, visualY: 0, boardOffsetX: 0, boardOffsetY: shape.height / 2, dir: 'vertical' },
+                    { visualX: 0, visualY: -heightHalf, boardOffsetX: -shape.width / 2, boardOffsetY: 0, dir: 'horizontal' },
+                    { visualX: 0, visualY: heightHalf, boardOffsetX: shape.width / 2, boardOffsetY: 0, dir: 'horizontal' }
+                ];
+            } else if (boardRotDeg === 180) {
+                // At 180° the board is flipped: visual right = board left, visual top = board bottom.
+                // Negate all boardOffset values so the correct (opposite) edge stays fixed.
+                edgeConfigs = [
+                    { visualX: widthHalf, visualY: 0, boardOffsetX: -shape.width / 2, boardOffsetY: 0, dir: 'horizontal' },
+                    { visualX: -widthHalf, visualY: 0, boardOffsetX: shape.width / 2, boardOffsetY: 0, dir: 'horizontal' },
+                    { visualX: 0, visualY: -heightHalf, boardOffsetX: 0, boardOffsetY: shape.height / 2, dir: 'vertical' },
+                    { visualX: 0, visualY: heightHalf, boardOffsetX: 0, boardOffsetY: -shape.height / 2, dir: 'vertical' }
+                ];
+            } else {
+                // 0°: visual edges = board edges
+                edgeConfigs = [
+                    { visualX: widthHalf, visualY: 0, boardOffsetX: shape.width / 2, boardOffsetY: 0, dir: 'horizontal' },
+                    { visualX: -widthHalf, visualY: 0, boardOffsetX: -shape.width / 2, boardOffsetY: 0, dir: 'horizontal' },
+                    { visualX: 0, visualY: -heightHalf, boardOffsetX: 0, boardOffsetY: -shape.height / 2, dir: 'vertical' },
+                    { visualX: 0, visualY: heightHalf, boardOffsetX: 0, boardOffsetY: shape.height / 2, dir: 'vertical' }
+                ];
+            }
 
-            edges.forEach(edge => {
-                const edgeX = centerX + Math.cos(rotation) * edge.x - Math.sin(rotation) * edge.y;
-                const edgeY = centerY + Math.sin(rotation) * edge.x + Math.cos(rotation) * edge.y;
+            edgeConfigs.forEach(config => {
+                // Step 1: Rotate by shape rotation
+                let offsetX = Math.cos(rotation) * config.visualX - Math.sin(rotation) * config.visualY;
+                let offsetY = Math.sin(rotation) * config.visualX + Math.cos(rotation) * config.visualY;
 
-                const handle = this.createResizeHandle(edgeX, edgeY, handleSize, edge.dir, { x: edge.offsetX, y: edge.offsetY });
+                // Step 2: Apply inverse board rotation for visual positioning
+                if (boardRotation !== 0) {
+                    const rotatedOffsetX = offsetX * Math.cos(boardRotation) - offsetY * Math.sin(boardRotation);
+                    const rotatedOffsetY = offsetX * Math.sin(boardRotation) + offsetY * Math.cos(boardRotation);
+                    offsetX = rotatedOffsetX;
+                    offsetY = rotatedOffsetY;
+                }
+
+                const edgeX = centerX + offsetX;
+                const edgeY = centerY + offsetY;
+
+                const handle = this.createResizeHandle(edgeX, edgeY, handleSize, config.dir,
+                    { x: config.boardOffsetX, y: config.boardOffsetY },
+                    this.resizeCursorForAngle(offsetX, offsetY));
                 this.resizeHandles.push(handle);
                 this.layer.appendChild(handle);
             });
         }
     },
 
+    // Map a visual offset (dx, dy) from the shape centre to a CSS resize cursor.
+    // Cursors are bidirectional, so we normalise the angle to [0°, 180°).
+    resizeCursorForAngle(dx, dy) {
+        let deg = Math.atan2(dy, dx) * 180 / Math.PI;
+        deg = ((deg % 180) + 180) % 180; // normalise to [0, 180)
+        if (deg < 22.5 || deg >= 157.5) return 'ew-resize';
+        if (deg < 67.5)  return 'nwse-resize';
+        if (deg < 112.5) return 'ns-resize';
+        return 'nesw-resize';
+    },
+
     // Create a single resize handle
-    createResizeHandle(x, y, size, direction, cornerOffset) {
+    createResizeHandle(x, y, size, direction, cornerOffset, cursor = 'nwse-resize') {
         const handle = document.createElement('div');
         handle.className = 'resize-handle';
         handle.style.position = 'absolute';
@@ -1301,7 +1534,7 @@ const Shapes = {
         handle.style.background = '#3498db';
         handle.style.border = '2px solid white';
         handle.style.borderRadius = '3px';
-        handle.style.cursor = 'nwse-resize';
+        handle.style.cursor = cursor;
         handle.style.zIndex = '1001';
         handle.style.pointerEvents = 'all';
         handle.style.boxShadow = '0 2px 6px rgba(0, 0, 0, 0.4)';
@@ -1321,20 +1554,22 @@ const Shapes = {
             if (direction === 'text' && AppState.selectedShape) {
                 const shape = AppState.getShape(AppState.selectedShape);
                 if (shape && shape.type === 'text') {
-                    const canvasRect = AppState.canvas.getBoundingClientRect();
-                    const scaleX = canvasRect.width / AppState.boardWidth;
-                    const scaleY = canvasRect.height / AppState.boardHeight;
-
                     // Store initial font size
                     this.initialTextFontSize = shape.fontSize || 48;
 
-                    // Calculate initial handle position (distance from shape center)
-                    const handleRect = e.target.getBoundingClientRect();
-                    const handleCenterX = handleRect.left + handleRect.width / 2;
-                    const handleCenterY = handleRect.top + handleRect.height / 2;
+                    // Calculate initial handle distance from the shape center in screen
+                    // space.  Use boardToScreenCoords so the center is correct even when
+                    // the board is rotated (getBoundingClientRect() returns post-transform
+                    // visual dimensions that are swapped at 90°/270° rotation).
+                    const container = document.querySelector('.board-container');
+                    const containerRect = container.getBoundingClientRect();
+                    const centerPos = Utils.boardToScreenCoords(shape.x, shape.y);
+                    const shapeCenterX = containerRect.left + centerPos.x;
+                    const shapeCenterY = containerRect.top  + centerPos.y;
 
-                    const shapeCenterX = canvasRect.left + shape.x * scaleX;
-                    const shapeCenterY = canvasRect.top + shape.y * scaleY;
+                    const handleRect = e.target.getBoundingClientRect();
+                    const handleCenterX = handleRect.left + handleRect.width  / 2;
+                    const handleCenterY = handleRect.top  + handleRect.height / 2;
 
                     const dx = handleCenterX - shapeCenterX;
                     const dy = handleCenterY - shapeCenterY;
@@ -1878,13 +2113,19 @@ const Shapes = {
 
             // Add a larger transparent hit area in touch mode
             if (document.body.classList.contains('touch-mode')) {
-                const canvasRect = AppState.canvas.getBoundingClientRect();
-                const scaleX = canvasRect.width / AppState.boardWidth;
-                const scaleY = canvasRect.height / AppState.boardHeight;
-                const x = shape.x * scaleX;
-                const y = shape.y * scaleY;
-                let width = shape.width * scaleX;
-                let height = shape.height * scaleY;
+                // Use canvas attribute dimensions (like Board.boardToScreen)
+                const canvasWidth = AppState.canvas.width;
+                const canvasHeight = AppState.canvas.height;
+                const scaleX = canvasWidth / AppState.boardWidth;
+                const scaleY = canvasHeight / AppState.boardHeight;
+                const scale = Math.min(scaleX, scaleY);
+                // Position using Board.boardToScreen approach
+                const x = shape.x * scale;
+                const y = shape.y * scale;
+                // Sizes are scaled by referenceScale, which already accounts for rotation
+                const referenceScale = AppState.referenceScale || scale;
+                let width = shape.width * referenceScale;
+                let height = shape.height * referenceScale;
 
                 let overlayWidth, overlayHeight, overlayX, overlayY, overlayYOffset;
 
@@ -2003,12 +2244,29 @@ const Shapes = {
 
     // Create SVG for shape
     createShapeSvg(shape) {
-        const canvasRect = AppState.canvas.getBoundingClientRect();
-        const scaleX = canvasRect.width / AppState.boardWidth;
-        const scaleY = canvasRect.height / AppState.boardHeight;
+        const canvasWidth = AppState.canvas.width;
+        const canvasHeight = AppState.canvas.height;
 
-        const x = shape.x * scaleX;
-        const y = shape.y * scaleY;
+        // For POSITION, use Board.boardToScreen approach (just multiply by scale)
+        // The canvas.width already accounts for rotation via Board.resize()
+        const posScaleX = canvasWidth / AppState.boardWidth;
+        const posScaleY = canvasHeight / AppState.boardHeight;
+
+        const x = shape.x * posScaleX;
+        const y = shape.y * posScaleY;
+
+        // For SIZE, use reference scale directly
+        // Shapes are in drawing-layer which is scaled by boardRotationScaleFactor
+        // Using referenceScale makes shapes scale proportionally with the board
+        const referenceScale = AppState.referenceScale || Math.min(posScaleX, posScaleY);
+        const scaleX = referenceScale;
+        const scaleY = referenceScale;
+
+        // Adjust stroke width to compensate for CSS scale transform
+        // When board is rotated, drawing-layer has a scale() transform applied
+        // vector-effect="non-scaling-stroke" doesn't compensate for CSS transforms
+        const scaleFactor = AppState.boardRotationScaleFactor || 1;
+        const adjustedStrokeWidth = shape.strokeWidth / scaleFactor;
 
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('class', 'shape-svg');
@@ -2078,7 +2336,17 @@ const Shapes = {
             svg.setAttribute('height', height);
             svg.style.left = x + 'px';
             svg.style.top = y + 'px';
-            svg.style.transform = `translate(${-width/2}px, ${-height/2}px) rotate(${shape.rotation || 0}deg)`;
+
+            // Text rotates with the board. Additionally flip 180° if the net rotation
+            // would make text read right-to-left (cos of net angle < 0).
+            let shapeRotation = shape.rotation || 0;
+            if (shape.type === 'text') {
+                const boardRotation = AppState.boardRotation || 0;
+                const net = (shapeRotation + boardRotation) * Math.PI / 180;
+                if (Math.cos(net) < 0) shapeRotation += 180;
+            }
+
+            svg.style.transform = `translate(${-width/2}px, ${-height/2}px) rotate(${shapeRotation}deg)`;
             svg.style.transformOrigin = `${width/2}px ${height/2}px`;
         }
 
@@ -2095,7 +2363,7 @@ const Shapes = {
         switch (shape.type) {
             case 'line':
                 content = `<rect x="${-shape.width/2}" y="-10" width="${shape.width}" height="20" fill="transparent" class="shape-drag-handle" pointer-events="all"/>
-                <line x1="${-shape.width/2}" y1="0" x2="${shape.width/2}" y2="0" stroke="${shape.color}" stroke-width="${shape.strokeWidth}" fill="none" vector-effect="non-scaling-stroke" pointer-events="none"/>`;
+                <line x1="${-shape.width/2}" y1="0" x2="${shape.width/2}" y2="0" stroke="${shape.color}" stroke-width="${adjustedStrokeWidth}" fill="none" vector-effect="non-scaling-stroke" pointer-events="none"/>`;
                 break;
             case 'arrow':
                 content = `
@@ -2105,7 +2373,7 @@ const Shapes = {
                             <polygon points="0,0 10,5 0,10" fill="${shape.color}"/>
                         </marker>
                     </defs>
-                    <line x1="${-shape.width/2}" y1="0" x2="${shape.width/2}" y2="0" stroke="${shape.color}" stroke-width="${shape.strokeWidth}" fill="none" marker-end="url(#arrowhead-${shape.id})" vector-effect="non-scaling-stroke" pointer-events="none"/>
+                    <line x1="${-shape.width/2}" y1="0" x2="${shape.width/2}" y2="0" stroke="${shape.color}" stroke-width="${adjustedStrokeWidth}" fill="none" marker-end="url(#arrowhead-${shape.id})" vector-effect="non-scaling-stroke" pointer-events="none"/>
                 `;
                 break;
             case 'rectangle': {
@@ -2114,7 +2382,7 @@ const Shapes = {
                 const rectY = margin;
                 const rectWidth = shape.width - (margin * 2);
                 const rectHeight = shape.height - (margin * 2);
-                content = `<rect x="${rectX}" y="${rectY}" width="${rectWidth}" height="${rectHeight}" fill="${shape.fillColor}" stroke="${shape.color}" stroke-width="${shape.strokeWidth}" vector-effect="non-scaling-stroke" pointer-events="all"/>`;
+                content = `<rect x="${rectX}" y="${rectY}" width="${rectWidth}" height="${rectHeight}" fill="${shape.fillColor}" stroke="${shape.color}" stroke-width="${adjustedStrokeWidth}" vector-effect="non-scaling-stroke" pointer-events="all"/>`;
                 break;
             }
             case 'circle': {
@@ -2122,7 +2390,7 @@ const Shapes = {
                 const cx = shape.width / 2;
                 const cy = shape.height / 2;
                 const r = (shape.width / 2) - margin;
-                content = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${shape.fillColor}" stroke="${shape.color}" stroke-width="${shape.strokeWidth}" vector-effect="non-scaling-stroke" pointer-events="all"/>`;
+                content = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${shape.fillColor}" stroke="${shape.color}" stroke-width="${adjustedStrokeWidth}" vector-effect="non-scaling-stroke" pointer-events="all"/>`;
                 break;
             }
             case 'ellipse': {
@@ -2132,7 +2400,7 @@ const Shapes = {
                 const rx = (shape.width / 2) - margin;
                 const ry = (shape.height / 2) - margin;
                 const ellipseText = shape.text ? `<text x="${cx}" y="${cy + 5}" text-anchor="middle" dominant-baseline="middle" font-size="16" font-weight="bold" fill="${shape.color}" pointer-events="all">${shape.text}</text>` : '';
-                content = `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${shape.fillColor}" stroke="${shape.color}" stroke-width="${shape.strokeWidth}" vector-effect="non-scaling-stroke" pointer-events="all"/>${ellipseText}`;
+                content = `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${shape.fillColor}" stroke="${shape.color}" stroke-width="${adjustedStrokeWidth}" vector-effect="non-scaling-stroke" pointer-events="all"/>${ellipseText}`;
                 break;
             }
             case 'text': {

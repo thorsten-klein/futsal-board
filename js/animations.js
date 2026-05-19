@@ -1612,6 +1612,19 @@ const Animations = {
                 headerDownloadBtn.style.opacity = '0.5';
             }
         }
+
+        // Grey out play/pause controls on root boards — animation only works on child boards
+        const playbackBtns = [
+            document.getElementById('btn-play-pause'),
+            document.getElementById('btn-play-frame'),
+            document.getElementById('btn-go-to-start'),
+            document.getElementById('btn-stop'),
+        ];
+        playbackBtns.forEach(btn => {
+            if (!btn) return;
+            btn.disabled = !isChild;
+            btn.style.opacity = isChild ? '1' : '0.5';
+        });
     },
 
     // Setup animation quality menu
@@ -3461,6 +3474,9 @@ const Animations = {
         const fontSize = 12;
         const radius = 8; // Circle radius
 
+        // Get board rotation for counter-rotation
+        const boardRotation = AppState.boardRotation || 0;
+
         // Create white circle background with same opacity as path
         const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         circle.setAttribute('cx', x);
@@ -3469,6 +3485,12 @@ const Animations = {
         circle.setAttribute('fill', 'white');
         circle.setAttribute('opacity', AppState.pathOpacity);
         circle.style.pointerEvents = 'none';
+
+        // Apply counter-rotation to keep circle upright when board is rotated
+        if (boardRotation !== 0) {
+            circle.setAttribute('transform', `rotate(${-boardRotation}, ${x}, ${y})`);
+        }
+
         pathsLayer.appendChild(circle);
 
         // Place text directly on the path
@@ -3483,6 +3505,12 @@ const Animations = {
         text.setAttribute('opacity', AppState.pathOpacity);
         text.style.pointerEvents = 'none';
         text.textContent = label;
+
+        // Apply counter-rotation to keep text upright when board is rotated
+        if (boardRotation !== 0) {
+            text.setAttribute('transform', `rotate(${-boardRotation}, ${x}, ${y})`);
+        }
+
         pathsLayer.appendChild(text);
     },
 

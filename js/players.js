@@ -135,7 +135,13 @@ const Players = {
         // Calculate player size based on board scale (100 units = 100cm)
         const canvasRect = AppState.canvas.getBoundingClientRect();
         const scaleX = canvasRect.width / AppState.boardWidth;
-        const playerSize = 100 * scaleX; // 100cm in board units
+        const scaleY = canvasRect.height / AppState.boardHeight;
+        const canvasScale = Math.min(scaleX, scaleY);
+
+        // Use reference scale for sizing to maintain constant size relative to board
+        // Players are in players-layer which is scaled by boardRotationScaleFactor
+        const referenceScale = AppState.referenceScale || canvasScale;
+        const playerSize = 100 * referenceScale; // 100cm in board units
 
         div.style.width = playerSize + 'px';
         div.style.height = playerSize + 'px';
@@ -156,9 +162,12 @@ const Players = {
         numberSpan.style.color = this.isBrightColor(color) ? '#000000' : '#ffffff';
 
         // Counter-rotate the number to keep it upright
+        // Need to account for both player rotation AND board rotation
         const rotation = player.rotation || 0;
-        if (rotation !== 0) {
-            numberSpan.style.transform = `rotate(${-rotation}deg)`;
+        const boardRotation = AppState.boardRotation || 0;
+        const totalCounterRotation = -(rotation + boardRotation);
+        if (totalCounterRotation !== 0) {
+            numberSpan.style.transform = `rotate(${totalCounterRotation}deg)`;
             numberSpan.style.display = 'inline-block';
         }
 
@@ -382,12 +391,11 @@ const Players = {
                     AppState.updatePositionDisplay(player.x, player.y, player, 'player');
 
                     // Calculate drag offset to prevent jump when dragging from edge
-                    // dragOffset is in screen pixels relative to canvas
-                    const canvasRect = AppState.canvas.getBoundingClientRect();
-                    const playerScreenPos = Board.boardToScreen(player.x, player.y);
+                    // Use screenToBoardCoords to account for rotation
+                    const boardCoords = Utils.screenToBoardCoords(e.clientX, e.clientY);
                     AppState.dragOffset = {
-                        x: e.clientX - canvasRect.left - playerScreenPos.x,
-                        y: e.clientY - canvasRect.top - playerScreenPos.y
+                        x: boardCoords.x - player.x,
+                        y: boardCoords.y - player.y
                     };
 
                     target.classList.add('dragging');
@@ -419,10 +427,13 @@ const Players = {
         const containerRect = document.getElementById('board-area').getBoundingClientRect();
         const canvasRect = AppState.canvas.getBoundingClientRect();
 
-        const screenX = e.clientX - canvasRect.left - AppState.dragOffset.x;
-        const screenY = e.clientY - canvasRect.top - AppState.dragOffset.y;
+        // Use screenToBoardCoords to account for rotation
+        const boardCoords = Utils.screenToBoardCoords(e.clientX, e.clientY);
 
-        const boardPos = Board.screenToBoard(screenX, screenY);
+        const boardPos = {
+            x: boardCoords.x - AppState.dragOffset.x,
+            y: boardCoords.y - AppState.dragOffset.y
+        };
 
         // Keep player within bounds (entire SVG viewBox: 0 0 4500 2500)
         boardPos.x = Math.max(20, Math.min(4480, boardPos.x));
@@ -436,8 +447,12 @@ const Players = {
         if (element) {
             const pos = Board.boardToScreen(boardPos.x, boardPos.y);
             // Calculate player size for proper centering
+            // Use referenceScale (same as render()) to account for board rotation
             const scaleX = canvasRect.width / AppState.boardWidth;
-            const playerSize = 100 * scaleX;
+            const scaleY = canvasRect.height / AppState.boardHeight;
+            const canvasScale = Math.min(scaleX, scaleY);
+            const referenceScale = AppState.referenceScale || canvasScale;
+            const playerSize = 100 * referenceScale;
             const halfSize = playerSize / 2;
             element.style.left = (pos.x - halfSize) + 'px';
             element.style.top = (pos.y - halfSize) + 'px';
@@ -562,9 +577,13 @@ const Players = {
         const player = AppState.selectedPlayer;
         const pos = Board.boardToScreen(player.x, player.y);
 
-        const handleDistance = 50;
+        // Account for board rotation scale factor - when board is rotated, it's scaled to fit
+        const scaleFactor = AppState.boardRotationScaleFactor || 1;
+        const handleDistance = 50 / scaleFactor;
         const rotation = (player.rotation || 0) * Math.PI / 180;
 
+        // Calculate handle offset - no board rotation compensation needed since
+        // the handle is inside board-area which is already rotated by players-layer transform
         const handleX = pos.x + Math.cos(rotation - Math.PI / 2) * handleDistance;
         const handleY = pos.y + Math.sin(rotation - Math.PI / 2) * handleDistance;
 
@@ -587,9 +606,13 @@ const Players = {
             const player = AppState.selectedPlayer;
             const pos = Board.boardToScreen(player.x, player.y);
 
-            const handleDistance = 50;
+            // Account for board rotation scale factor - when board is rotated, it's scaled to fit
+            const scaleFactor = AppState.boardRotationScaleFactor || 1;
+            const handleDistance = 50 / scaleFactor;
             const rotation = (player.rotation || 0) * Math.PI / 180;
 
+            // Calculate handle offset - no board rotation compensation needed since
+            // the handle is inside board-area which is already rotated by players-layer transform
             const handleX = pos.x + Math.cos(rotation - Math.PI / 2) * handleDistance;
             const handleY = pos.y + Math.sin(rotation - Math.PI / 2) * handleDistance;
 
@@ -622,14 +645,11 @@ const Players = {
         const player = AppState.selectedPlayer;
         if (!player) return;
 
-        const pos = Board.boardToScreen(player.x, player.y);
-        const canvasRect = AppState.canvas.getBoundingClientRect();
+        // Get mouse position in board coordinates (properly accounts for board rotation via DOMMatrix)
+        const mouseBoardPos = Utils.screenToBoardCoords(e.clientX, e.clientY);
 
-        const mouseX = e.clientX - canvasRect.left;
-        const mouseY = e.clientY - canvasRect.top;
-
-        // Calculate angle
-        const angle = Math.atan2(mouseY - pos.y, mouseX - pos.x);
+        // Calculate angle from player to mouse in board coordinate space
+        const angle = Math.atan2(mouseBoardPos.y - player.y, mouseBoardPos.x - player.x);
         const degrees = (angle * 180 / Math.PI) + 90;
 
         // Normalize to 0-360

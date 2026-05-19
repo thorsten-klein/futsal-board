@@ -12,26 +12,16 @@ test.describe('Element Rotation in Touch Mode', () => {
 
     test('TOUCH MODE: should be able to rotate an element using rotation handle', async ({ page }) => {
         // Enable touch mode
-        await page.evaluate(() => {
+        const elementId = await page.evaluate(() => {
             document.body.classList.add('touch-mode');
 
-            // Create a cone element
-            const element = {
-                id: 'element-1',
-                type: 'cone',
-                x: 2000,
-                y: 1500,
-                rotation: 0,
-                visible: true,
-                inherited: false
-            };
-
-            AppState.elements.push(element);
-            AppState.nextElementId = 2;
-
+            // Clear default elements and add a ladder (supports rotation)
+            AppState.elements = [];
+            const element = AppState.addElement('ladder', 2000, 1500);
             if (typeof Elements !== 'undefined') {
                 Elements.render();
             }
+            return element.id;
         });
 
         await page.waitForTimeout(300);
@@ -55,10 +45,10 @@ test.describe('Element Rotation in Touch Mode', () => {
         await expect(rotationHandle).toBeVisible();
 
         // Get initial rotation
-        const initialRotation = await page.evaluate(() => {
-            const element = AppState.elements.find(e => e.id === 'element-1');
+        const initialRotation = await page.evaluate((id) => {
+            const element = AppState.elements.find(e => e.id === id);
             return element ? element.rotation : null;
-        });
+        }, elementId);
 
         // Get rotation handle position
         const handleBox = await rotationHandle.boundingBox();
@@ -67,24 +57,9 @@ test.describe('Element Rotation in Touch Mode', () => {
         const handleCenterX = handleBox.x + handleBox.width / 2;
         const handleCenterY = handleBox.y + handleBox.height / 2;
 
-        // Check what element is at the handle position before clicking
-        const elementAtHandle = await page.evaluate((pos) => {
-            const el = document.elementFromPoint(pos.x, pos.y);
-            return {
-                tagName: el ? el.tagName : null,
-                className: el ? el.className : null,
-                id: el ? el.id : null
-            };
-        }, { x: handleCenterX, y: handleCenterY });
-
         await page.mouse.move(handleCenterX, handleCenterY);
         await page.mouse.down();
         await page.waitForTimeout(100);
-
-        // Check if rotation started
-        const isRotating = await page.evaluate(() => {
-            return typeof Elements !== 'undefined' && Elements.isRotating;
-        });
 
         // Move mouse to rotate (move to the right side)
         const elementBox = await elementSvg.boundingBox();
@@ -98,28 +73,10 @@ test.describe('Element Rotation in Touch Mode', () => {
         await page.waitForTimeout(200);
 
         // Get final rotation
-        const finalRotation = await page.evaluate(() => {
-            const element = AppState.elements.find(e => e.id === 'element-1');
+        const finalRotation = await page.evaluate((id) => {
+            const element = AppState.elements.find(e => e.id === id);
             return element ? element.rotation : null;
-        });
-
-        // Check debug info if rotation didn't work
-        if (initialRotation === finalRotation) {
-            const debugInfo = await page.evaluate(() => {
-                const overlays = document.querySelectorAll('.touch-overlay[data-element]');
-                const handles = document.querySelectorAll('.rotation-handle');
-
-                return {
-                    overlayCount: overlays.length,
-                    overlayZIndex: overlays.length > 0 ? overlays[0].style.zIndex : null,
-                    overlayPointerEvents: overlays.length > 0 ? getComputedStyle(overlays[0]).pointerEvents : null,
-                    handleCount: handles.length,
-                    handleZIndex: handles.length > 0 ? handles[0].style.zIndex : null,
-                    handlePointerEvents: handles.length > 0 ? getComputedStyle(handles[0]).pointerEvents : null,
-                    touchMode: document.body.classList.contains('touch-mode')
-                };
-            });
-        }
+        }, elementId);
 
         // Rotation should have changed
         expect(finalRotation).not.toBe(initialRotation);
@@ -190,29 +147,20 @@ test.describe('Element Rotation in Touch Mode', () => {
 
     test('DESKTOP MODE: rotation should work normally without touch overlays', async ({ page }) => {
         // Desktop mode (no touch-mode class)
-        await page.evaluate(() => {
-            const element = {
-                id: 'element-1',
-                type: 'cone',
-                x: 2000,
-                y: 1500,
-                rotation: 0,
-                visible: true,
-                inherited: false
-            };
-
-            AppState.elements.push(element);
-            AppState.nextElementId = 2;
-
+        const elementId = await page.evaluate(() => {
+            // Clear default elements and add a ladder (supports rotation)
+            AppState.elements = [];
+            const element = AppState.addElement('ladder', 2000, 1500);
             if (typeof Elements !== 'undefined') {
                 Elements.render();
             }
+            return element.id;
         });
 
         await page.waitForTimeout(300);
 
-        // Select element
-        const elementSvg = page.locator('.element-svg').first();
+        // Select element - use the last element-svg since defaults were cleared
+        const elementSvg = page.locator('.element-svg').last();
         await elementSvg.click();
         await page.waitForTimeout(200);
 
@@ -227,10 +175,10 @@ test.describe('Element Rotation in Touch Mode', () => {
         const rotationHandle = page.locator('.rotation-handle');
         await expect(rotationHandle).toBeVisible();
 
-        const initialRotation = await page.evaluate(() => {
-            const element = AppState.elements.find(e => e.id === 'element-1');
-            return element.rotation;
-        });
+        const initialRotation = await page.evaluate((id) => {
+            const element = AppState.elements.find(e => e.id === id);
+            return element ? element.rotation : null;
+        }, elementId);
 
         // Drag rotation handle
         const handleBox = await rotationHandle.boundingBox();
@@ -242,10 +190,10 @@ test.describe('Element Rotation in Touch Mode', () => {
         await page.mouse.up();
         await page.waitForTimeout(200);
 
-        const finalRotation = await page.evaluate(() => {
-            const element = AppState.elements.find(e => e.id === 'element-1');
-            return element.rotation;
-        });
+        const finalRotation = await page.evaluate((id) => {
+            const element = AppState.elements.find(e => e.id === id);
+            return element ? element.rotation : null;
+        }, elementId);
 
         // Rotation should work in desktop mode
         expect(finalRotation).not.toBe(initialRotation);

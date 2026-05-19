@@ -43,8 +43,9 @@ test.describe('Position and Size Increment Buttons', () => {
             const firstClickX = await page.locator('#element-pos-x').inputValue();
             const firstClickXNum = parseInt(firstClickX);
 
-            // First click should round up to nearest 50
-            const expectedFirstClick = Math.ceil(initialXNum / 50) * 50;
+            // First click should always increment to the next multiple of 50,
+            // even if the current value is already on a 50 boundary.
+            const expectedFirstClick = Math.ceil((initialXNum + 1) / 50) * 50;
             expect(firstClickXNum).toBe(expectedFirstClick);
 
             // Click increase again
@@ -353,26 +354,26 @@ test.describe('Position and Size Increment Buttons', () => {
             await page.locator('#shape-width').fill('300');
             await page.waitForTimeout(300);
 
-            // First click increase - should round to 300 (no change since on boundary)
+            // First click increase - already at a 50 boundary, so it increments to 350
             await page.locator('.position-btn[data-field="width"][data-action="increase"]').click();
             await page.waitForTimeout(100);
 
             const firstIncreaseWidth = await page.locator('#shape-width').inputValue();
-            expect(parseInt(firstIncreaseWidth)).toBe(300);
+            expect(parseInt(firstIncreaseWidth)).toBe(350);
 
-            // Second click increase - should add 50 to get 350
+            // Second click increase - should add 50 to get 400
             await page.locator('.position-btn[data-field="width"][data-action="increase"]').click();
             await page.waitForTimeout(100);
 
             const secondIncreaseWidth = await page.locator('#shape-width').inputValue();
-            expect(parseInt(secondIncreaseWidth)).toBe(350);
+            expect(parseInt(secondIncreaseWidth)).toBe(400);
 
-            // Click decrease - should go to 300 (force needed due to rotation handle overlay)
+            // Click decrease - should go to 350
             await page.locator('.position-btn[data-field="width"][data-action="decrease"]').click();
             await page.waitForTimeout(100);
 
             const afterDecreaseWidth = await page.locator('#shape-width').inputValue();
-            expect(parseInt(afterDecreaseWidth)).toBe(300);
+            expect(parseInt(afterDecreaseWidth)).toBe(350);
         });
     });
 

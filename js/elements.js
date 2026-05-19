@@ -24,7 +24,7 @@ const Elements = {
 
     /** Sets up element DOM layer, drag/drop, and context-menu event listeners. */
     init() {
-        this.layer = document.getElementById('board-area'); // Reuse players layer
+        this.layer = document.getElementById('board-area');
         this.contextMenuElement = null;
         this.rotationHandle = null;
         this.isRotating = false;
@@ -284,16 +284,14 @@ const Elements = {
                         AppState.draggedElement = element;
                         AppState.updatePositionDisplay(element.x, element.y, element, 'element');
 
-                        const rect = AppState.canvas.getBoundingClientRect();
-                        const scaleX = AppState.boardWidth / rect.width;
-                        const scaleY = AppState.boardHeight / rect.height;
-
                         // Calculate drag offset to prevent jump when dragging from edge
+                        // Use screenToBoardCoords to account for rotation
                         // In touch mode, when clicking on an overlay, use the element's anchor point (element.x, element.y)
                         // because the drag calculation in setupEntityDrag updates the element position (anchor point)
+                        const boardCoords = Utils.screenToBoardCoords(e.clientX, e.clientY);
                         AppState.dragOffset = {
-                            x: (e.clientX - rect.left) * scaleX - element.x,
-                            y: (e.clientY - rect.top)  * scaleY - element.y
+                            x: boardCoords.x - element.x,
+                            y: boardCoords.y - element.y
                         };
                     }
 
@@ -325,8 +323,14 @@ const Elements = {
             selectedKey: 'selectedElement',
             type: 'element',
             updateDOM: (el, x, y, pxW, pxH) => {
-                el.style.left = (x * (pxW / AppState.boardWidth))  + 'px';
-                el.style.top  = (y * (pxH / AppState.boardHeight)) + 'px';
+                // Use canvas dimensions (not getBoundingClientRect) to match initial positioning
+                const canvasWidth = AppState.canvas.width;
+                const canvasHeight = AppState.canvas.height;
+                const pixelScaleX = canvasWidth / AppState.boardWidth;
+                const pixelScaleY = canvasHeight / AppState.boardHeight;
+
+                el.style.left = (x * pixelScaleX) + 'px';
+                el.style.top  = (y * pixelScaleY) + 'px';
                 // rotation/anchor transform is maintained from original render
 
                 // Update touch overlay position if it exists
@@ -336,8 +340,8 @@ const Elements = {
                     const element = AppState.getElement(el.dataset.element);
                     if (element) {
                         const center = this.getGeometricalCenter(element);
-                        overlay.style.left = (center.x * (pxW / AppState.boardWidth))  + 'px';
-                        overlay.style.top  = (center.y * (pxH / AppState.boardHeight)) + 'px';
+                        overlay.style.left = (center.x * pixelScaleX) + 'px';
+                        overlay.style.top  = (center.y * pixelScaleY) + 'px';
                     }
                 }
 
@@ -616,11 +620,11 @@ const Elements = {
                 const isFirstAdjustment = initialValue !== null && initialValue === currentValue;
 
                 if (isFirstAdjustment) {
-                    // Round to nearest increment value
+                    // Round to next increment boundary (use +1/-1 to ensure we always move away)
                     if (action === 'increase') {
-                        currentValue = Math.ceil(currentValue / roundValue) * roundValue;
+                        currentValue = Math.ceil((currentValue + 1) / roundValue) * roundValue;
                     } else {
-                        currentValue = Math.floor(currentValue / roundValue) * roundValue;
+                        currentValue = Math.floor((currentValue - 1) / roundValue) * roundValue;
                     }
 
                     // Mark that we've done the first adjustment by setting to null
@@ -888,6 +892,15 @@ const Elements = {
         }
         this._isRendering = true;
 
+        // Initialize rotation property for rotatable elements that don't have it
+        AppState.elements.forEach(element => {
+            if (this.supportsRotation && this.supportsRotation(element.type)) {
+                if (element.rotation === undefined) {
+                    element.rotation = AppState.boardRotation || 0;
+                }
+            }
+        });
+
         // Clear ALL element SVGs and touch overlays from the DOM (not just tracked ones)
         this.layer.querySelectorAll('.element-svg').forEach(svg => {
             svg.remove();
@@ -964,14 +977,18 @@ const Elements = {
 
             // Add a larger transparent hit area in touch mode
             if (document.body.classList.contains('touch-mode')) {
-                const canvasRect = AppState.canvas.getBoundingClientRect();
-                const scaleX = canvasRect.width / AppState.boardWidth;
-                const scaleY = canvasRect.height / AppState.boardHeight;
+                // Use canvas attribute dimensions (like Board.boardToScreen)
+                const canvasWidth = AppState.canvas.width;
+                const canvasHeight = AppState.canvas.height;
+                const scaleX = canvasWidth / AppState.boardWidth;
+                const scaleY = canvasHeight / AppState.boardHeight;
+                const scale = Math.min(scaleX, scaleY);
 
                 // Position overlay at geometrical center, not anchor point
                 const center = this.getGeometricalCenter(element);
-                const x = center.x * scaleX;
-                const y = center.y * scaleY;
+                // Position using Board.boardToScreen approach
+                const x = center.x * scale;
+                const y = center.y * scale;
 
                 const overlay = document.createElement('div');
                 overlay.className = 'touch-overlay';
@@ -1008,15 +1025,37 @@ const Elements = {
 
     // Create SVG for element
     createElementSvg(element) {
-        const canvasRect = AppState.canvas.getBoundingClientRect();
+        // Calculate scale for element sizing (maintains constant visual size across rotations)
+        const canvasWidth = AppState.canvas.width || 1000;
+        const canvasHeight = AppState.canvas.height || 556;
+        const boardRotationScale = AppState.boardRotationScaleFactor || 1;
 
-        // Scale based on actual rendered canvas size
-        const scaleX = canvasRect.width / AppState.boardWidth;
-        const scaleY = canvasRect.height / AppState.boardHeight;
+        // Calculate scales for positioning and sizing
+        const posScaleX = canvasWidth / AppState.boardWidth;
+        const posScaleY = canvasHeight / AppState.boardHeight;
+        const canvasScale = Math.min(posScaleX, posScaleY);
 
-        // Position relative to players-layer (which is already positioned to match canvas)
-        const x = element.x * scaleX;
-        const y = element.y * scaleY;
+        // Position using Board.boardToScreen approach (multiply by respective scale)
+        // Use posScaleX and posScaleY separately, not the minimum
+        const x = element.x * posScaleX;
+        const y = element.y * posScaleY;
+
+        // For size, use reference scale (from 0° rotation) directly
+        // This makes elements scale proportionally with the board layer
+        // When board is scaled down (e.g., 0.556 at 90°), elements also appear proportionally smaller
+        const referenceScale = AppState.referenceScale || canvasScale;
+        let scale = referenceScale;
+
+        // For elements that use separate X/Y scales (cones, poles)
+        // Use the same reference scale for both to maintain uniform sizing
+        const scaleX = referenceScale;
+        const scaleY = referenceScale;
+
+        // Ensure scale is valid
+        if (!scale || isNaN(scale) || scale <= 0) {
+            console.error('Invalid scale calculated:', scale);
+            scale = 0.2;
+        }
 
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('class', 'element-svg');
@@ -1035,6 +1074,7 @@ const Elements = {
         svg.style.position = 'absolute';
         svg.style.left = x + 'px';
         svg.style.top = y + 'px';
+
         svg.style.overflow = 'visible';
         svg.style.pointerEvents = 'all';
         svg.style.touchAction = 'none';
@@ -1082,101 +1122,112 @@ const Elements = {
                 content = this.createCone(element.color);
                 svg.setAttribute('width', width);
                 svg.setAttribute('height', height);
-                svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
+                // Cones are non-rotatable - counter-rotate to stay upright in rotated board-area
+                const coneCounterRotation = -(AppState.boardRotation || 0);
+                svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${coneCounterRotation}deg)`;
                 svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
                 break;
             case 'goal':
                 // 100cm x 300cm
-                width = 100 * scaleX;
-                height = 300 * scaleY;
+                width = 100 * scale;
+                height = 300 * scale;
                 content = this.createGoal();
                 svg.setAttribute('viewBox', '0 0 100 300');
                 svg.setAttribute('width', width);
                 svg.setAttribute('height', height);
+                // Rotatable element: rotation is relative to board, rotates with board
                 svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
                 svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
                 break;
             case 'small-goal':
                 // 50cm x 100cm
-                width = 50 * scaleX;
-                height = 100 * scaleY;
+                width = 50 * scale;
+                height = 100 * scale;
                 content = this.createSmallGoal();
                 svg.setAttribute('viewBox', '0 0 50 100');
                 svg.setAttribute('width', width);
                 svg.setAttribute('height', height);
+                // Rotatable element: rotation is relative to board, rotates with board
                 svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
                 svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
                 break;
             case 'pole':
                 // 90cm x 300cm
-                width = 90 * scaleX;
-                height = 300 * scaleY;
+                width = 90 * scale;
+                height = 300 * scale;
                 content = this.createPole(element.color);
                 svg.setAttribute('viewBox', '0 0 90 300');
                 svg.setAttribute('width', width);
                 svg.setAttribute('height', height);
-                svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
+                // Poles are non-rotatable - counter-rotate to stay upright in rotated board-area
+                const poleCounterRotation = -(AppState.boardRotation || 0);
+                svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${poleCounterRotation}deg)`;
                 svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
                 break;
             case 'ladder':
                 // 100 x 600 units
-                width = 100 * scaleX;
-                height = 600 * scaleY;
+                width = 100 * scale;
+                height = 600 * scale;
                 content = this.createLadder(element.color);
                 svg.setAttribute('viewBox', '0 0 100 600');
                 svg.setAttribute('width', width);
                 svg.setAttribute('height', height);
+                // Rotatable element: rotation is relative to board, rotates with board
                 svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
                 svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
                 break;
             case 'rebounce':
                 // 50cm x 400cm
-                width = 50 * scaleX;
-                height = 400 * scaleY;
+                width = 50 * scale;
+                height = 400 * scale;
                 content = this.createRebounce(element.color);
                 svg.setAttribute('viewBox', '0 0 50 400');
                 svg.setAttribute('width', width);
                 svg.setAttribute('height', height);
+                // Rotatable element: rotation is relative to board, rotates with board
                 svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
                 svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
                 break;
             case 'small-wall':
                 // 50cm x 100cm
-                width = 50 * scaleX;
-                height = 100 * scaleY;
+                width = 50 * scale;
+                height = 100 * scale;
                 content = this.createSmallWall(element.color);
                 svg.setAttribute('viewBox', '0 0 50 100');
                 svg.setAttribute('width', width);
                 svg.setAttribute('height', height);
+                // Rotatable element: rotation is relative to board, rotates with board
                 svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
                 svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
                 break;
             case 'big-wall':
                 // 50cm x 200cm
-                width = 50 * scaleX;
-                height = 200 * scaleY;
+                width = 50 * scale;
+                height = 200 * scale;
                 content = this.createBigWall(element.color);
                 svg.setAttribute('viewBox', '0 0 50 200');
                 svg.setAttribute('width', width);
                 svg.setAttribute('height', height);
+                // Rotatable element: rotation is relative to board, rotates with board
                 svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
                 svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
                 break;
             case 'small-hurdle':
                 // 100cm x 60cm
-                width = 100 * scaleX;
-                height = 60 * scaleY;
+                width = 100 * scale;
+                height = 60 * scale;
                 content = this.createSmallHurdle(element.color);
                 svg.setAttribute('viewBox', '0 0 100 60');
                 svg.setAttribute('width', width);
                 svg.setAttribute('height', height);
+                // Rotatable element: rotation is relative to board, rotates with board
                 svg.style.transform = `translate(${-width * anchor.x}px, ${-height * anchor.y}px) rotate(${rotation}deg)`;
                 svg.style.transformOrigin = `${width * anchor.x}px ${height * anchor.y}px`;
                 break;
             case 'ball-box':
                 // 150cm x 150cm
-                width = 150 * scaleX;
-                height = 150 * scaleY;
+                width = 150 * scale;
+                height = 150 * scale;
                 content = this.createBallBox(element.color);
                 svg.setAttribute('viewBox', '0 0 150 150');
                 svg.setAttribute('width', width);
@@ -1394,19 +1445,25 @@ const Elements = {
         if (!this.rotationHandle || !AppState.selectedElement) return;
 
         const element = AppState.selectedElement;
-        const canvasRect = AppState.canvas.getBoundingClientRect();
-        const scaleX = canvasRect.width / AppState.boardWidth;
-        const scaleY = canvasRect.height / AppState.boardHeight;
 
-        const centerX = element.x * scaleX;
-        const centerY = element.y * scaleY;
+        // Get element's geometrical center (accounts for anchor and element rotation)
+        const centerBoardPos = this.getGeometricalCenter(element);
+
+        // Use Board.boardToScreen to properly convert element center to canvas coordinates
+        const centerPos = Board.boardToScreen(centerBoardPos.x, centerBoardPos.y);
+
         const elementBoardHalfHeights = {
             'ladder': 300, 'rebounce': 200, 'big-wall': 100, 'small-wall': 50, 'small-hurdle': 30
         };
         const halfH = elementBoardHalfHeights[element.type];
-        const handleDistance = halfH ? halfH * scaleY + 20 : 50;
+
+        // Calculate handle distance, accounting for board rotation scale factor
+        const referenceScale = AppState.referenceScale;
+        const scaleFactor = AppState.boardRotationScaleFactor || 1;
+        const handleDistance = (halfH ? halfH * referenceScale + 20 : 50) / scaleFactor;
         const rotationRad = (element.rotation || 0) * Math.PI / 180;
 
+        // Calculate handle angle relative to element
         let handleAngle;
         if (element.type === 'goal' || element.type === 'small-goal') {
             handleAngle = rotationRad + Math.PI;
@@ -1414,22 +1471,14 @@ const Elements = {
             handleAngle = rotationRad - Math.PI / 2;
         }
 
-        const handleX = centerX + Math.cos(handleAngle) * handleDistance;
-        const handleY = centerY + Math.sin(handleAngle) * handleDistance;
+        // Calculate handle offset - no board rotation compensation needed since
+        // the handle is inside board-area which is already rotated by CSS transform
+        const handleX = centerPos.x + Math.cos(handleAngle) * handleDistance;
+        const handleY = centerPos.y + Math.sin(handleAngle) * handleDistance;
 
         const handleSize = 28;
-
-        // Check if handle is in board-container (needs offset) or board-area (no offset)
-        const isInBoardContainer = this.rotationHandle.parentElement?.classList.contains('board-container');
-        if (isInBoardContainer) {
-            const boardContainer = this.rotationHandle.parentElement;
-            const containerRect = boardContainer.getBoundingClientRect();
-            this.rotationHandle.style.left = (canvasRect.left - containerRect.left + handleX - handleSize / 2) + 'px';
-            this.rotationHandle.style.top = (canvasRect.top - containerRect.top + handleY - handleSize / 2) + 'px';
-        } else {
-            this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
-            this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
-        }
+        this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
+        this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
     },
 
     // Update rotation handle position
@@ -1443,17 +1492,24 @@ const Elements = {
         // Only show handle if an element is selected, supports rotation, and is not locked
         if (AppState.selectedElement && this.supportsRotation(AppState.selectedElement.type) && !AppState.selectedElement.inherited) {
             const element = AppState.selectedElement;
-            const canvasRect = AppState.canvas.getBoundingClientRect();
-            const scaleX = canvasRect.width / AppState.boardWidth;
-            const scaleY = canvasRect.height / AppState.boardHeight;
 
-            const centerX = element.x * scaleX;
-            const centerY = element.y * scaleY;
+            // Get element's geometrical center (accounts for anchor and element rotation)
+            const centerBoardPos = this.getGeometricalCenter(element);
+
+            // Use Board.boardToScreen to properly convert element center to canvas coordinates
+            const centerPos = Board.boardToScreen(centerBoardPos.x, centerBoardPos.y);
+            const centerX = centerPos.x;
+            const centerY = centerPos.y;
+
             const elementBoardHalfHeights = {
-            'ladder': 300, 'rebounce': 200, 'big-wall': 100, 'small-wall': 50, 'small-hurdle': 30
-        };
-        const halfH = elementBoardHalfHeights[element.type];
-        const handleDistance = halfH ? halfH * scaleY + 20 : 50;
+                'ladder': 300, 'rebounce': 200, 'big-wall': 100, 'small-wall': 50, 'small-hurdle': 30
+            };
+            const halfH = elementBoardHalfHeights[element.type];
+
+            // Calculate handle distance, accounting for board rotation scale factor
+            const referenceScale = AppState.referenceScale;
+            const scaleFactor = AppState.boardRotationScaleFactor || 1;
+            const handleDistance = (halfH ? halfH * referenceScale + 20 : 50) / scaleFactor;
             const rotationRad = (element.rotation || 0) * Math.PI / 180;
 
             let handleAngle;
@@ -1463,8 +1519,13 @@ const Elements = {
                 handleAngle = rotationRad - Math.PI / 2;
             }
 
-            const handleX = centerX + Math.cos(handleAngle) * handleDistance;
-            const handleY = centerY + Math.sin(handleAngle) * handleDistance;
+            // Calculate handle offset - no board rotation compensation needed since
+            // the handle is inside board-area which is already rotated by CSS transform
+            const offsetX = Math.cos(handleAngle) * handleDistance;
+            const offsetY = Math.sin(handleAngle) * handleDistance;
+
+            const handleX = centerX + offsetX;
+            const handleY = centerY + offsetY;
 
             const handleSize = 28;
 
@@ -1475,16 +1536,9 @@ const Elements = {
             this.rotationHandle.style.height = handleSize + 'px';
             this.rotationHandle.style.zIndex = '1001';
 
-            // Calculate position - if appending to board-container, use canvas offset
-            const boardContainer = document.querySelector('.board-container');
-            if (boardContainer) {
-                const containerRect = boardContainer.getBoundingClientRect();
-                this.rotationHandle.style.left = (canvasRect.left - containerRect.left + handleX - handleSize / 2) + 'px';
-                this.rotationHandle.style.top = (canvasRect.top - containerRect.top + handleY - handleSize / 2) + 'px';
-            } else {
-                this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
-                this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
-            }
+            // Position handle in canvas coordinates - will be rotated by board-area transform
+            this.rotationHandle.style.left = (handleX - handleSize / 2) + 'px';
+            this.rotationHandle.style.top = (handleY - handleSize / 2) + 'px';
 
             // Add event listener
             this.rotationHandle.addEventListener('mousedown', (e) => {
@@ -1495,12 +1549,8 @@ const Elements = {
                 AppState.updatePositionDisplay(element.x, element.y, element, 'element');
             });
 
-            // Append to board-area's parent (board-container) to ensure it's above all SVG elements
-            if (boardContainer) {
-                boardContainer.appendChild(this.rotationHandle);
-            } else {
-                this.layer.appendChild(this.rotationHandle);
-            }
+            // Append to board-area (same as players) so it rotates with the board transform
+            this.layer.appendChild(this.rotationHandle);
         }
     },
 
@@ -1509,19 +1559,25 @@ const Elements = {
         const element = AppState.selectedElement;
         if (!element) return;
 
-        const canvasRect = AppState.canvas.getBoundingClientRect();
-        const scaleX = canvasRect.width / AppState.boardWidth;
-        const scaleY = canvasRect.height / AppState.boardHeight;
+        // Get element's geometrical center in board coordinates
+        const centerBoardPos = this.getGeometricalCenter(element);
 
-        const centerX = element.x * scaleX;
-        const centerY = element.y * scaleY;
+        // Get mouse position in board coordinates (properly accounts for board rotation via DOMMatrix)
+        const mouseBoardPos = Utils.screenToBoardCoords(e.clientX, e.clientY);
 
-        const mouseX = e.clientX - canvasRect.left;
-        const mouseY = e.clientY - canvasRect.top;
-
-        // Calculate angle from center to mouse
-        const angle = Math.atan2(mouseY - centerY, mouseX - centerX);
+        // Calculate angle from center to mouse in board coordinate space
+        const angle = Math.atan2(mouseBoardPos.y - centerBoardPos.y, mouseBoardPos.x - centerBoardPos.x);
         let degrees = angle * 180 / Math.PI;
+
+        // DEBUG
+        if (AppState.debugCoords) {
+            console.log('handleRotationMove:', {
+                centerBoard: centerBoardPos,
+                mouseBoard: mouseBoardPos,
+                rawAngle: degrees,
+                boardRotation: AppState.boardRotation
+            });
+        }
 
         // Adjust based on handle position for different element types
         if (element.type === 'goal' || element.type === 'small-goal') {
@@ -1541,50 +1597,51 @@ const Elements = {
         // Update SVG transform directly without full re-render
         const elementSvg = document.getElementById(element.id);
         if (elementSvg) {
-            // Get element dimensions and anchor
+            // Get element dimensions and anchor - use referenceScale for consistency
+            const scale = AppState.referenceScale;
             const anchor = this.getAnchor(element.type);
             let width, height;
 
             switch (element.type) {
                 case 'cone':
-                    width = 100 * scaleX;
-                    height = 120 * scaleY;
+                    width = 100 * scale;
+                    height = 120 * scale;
                     break;
                 case 'goal':
-                    width = 100 * scaleX;
-                    height = 300 * scaleY;
+                    width = 100 * scale;
+                    height = 300 * scale;
                     break;
                 case 'small-goal':
-                    width = 50 * scaleX;
-                    height = 100 * scaleY;
+                    width = 50 * scale;
+                    height = 100 * scale;
                     break;
                 case 'pole':
-                    width = 90 * scaleX;
-                    height = 300 * scaleY;
+                    width = 90 * scale;
+                    height = 300 * scale;
                     break;
                 case 'ladder':
-                    width = 100 * scaleX;
-                    height = 600 * scaleY;
+                    width = 100 * scale;
+                    height = 600 * scale;
                     break;
                 case 'rebounce':
-                    width = 50 * scaleX;
-                    height = 400 * scaleY;
+                    width = 50 * scale;
+                    height = 400 * scale;
                     break;
                 case 'small-wall':
-                    width = 50 * scaleX;
-                    height = 100 * scaleY;
+                    width = 50 * scale;
+                    height = 100 * scale;
                     break;
                 case 'big-wall':
-                    width = 50 * scaleX;
-                    height = 200 * scaleY;
+                    width = 50 * scale;
+                    height = 200 * scale;
                     break;
                 case 'small-hurdle':
-                    width = 100 * scaleX;
-                    height = 60 * scaleY;
+                    width = 100 * scale;
+                    height = 60 * scale;
                     break;
                 default:
-                    width = 100 * scaleX;
-                    height = 100 * scaleY;
+                    width = 100 * scale;
+                    height = 100 * scale;
             }
 
             // Update rotation with correct transform
@@ -1596,14 +1653,11 @@ const Elements = {
         if (document.body.classList.contains('touch-mode')) {
             const overlay = this.layer.querySelector(`.touch-overlay[data-element="${element.id}"]`);
             if (overlay) {
-                const canvasRect = AppState.canvas.getBoundingClientRect();
-                const scaleX = canvasRect.width / AppState.boardWidth;
-                const scaleY = canvasRect.height / AppState.boardHeight;
-
-                // Calculate new geometrical center after rotation
+                // Calculate new geometrical center after rotation and convert to canvas coordinates
                 const center = this.getGeometricalCenter(element);
-                overlay.style.left = (center.x * scaleX) + 'px';
-                overlay.style.top = (center.y * scaleY) + 'px';
+                const centerPos = Board.boardToScreen(center.x, center.y);
+                overlay.style.left = centerPos.x + 'px';
+                overlay.style.top = centerPos.y + 'px';
             }
         }
 

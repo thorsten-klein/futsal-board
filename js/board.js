@@ -144,15 +144,50 @@ const Board = {
         const container = document.querySelector('.board-container');
         const rect = container.getBoundingClientRect();
 
-        // Maintain aspect ratio
-        const aspectRatio = AppState.boardWidth / AppState.boardHeight;
-        let width = rect.width;
-        let height = rect.height;
+        // Account for board rotation
+        const rotation = AppState.boardRotation || 0;
 
-        if (width / height > aspectRatio) {
-            width = height * aspectRatio;
+        let width, height;
+        let scaleFactor = 1;
+
+        if (rotation === 90 || rotation === 270) {
+            // When rotated 90°/270°, we apply rotate(90deg) scale(s) CSS transform.
+            // Always use the CURRENT container rect so the canvas tracks zoom changes
+            // correctly (a stale cache would prevent adaptation to viewport resize).
+
+            // scaleAt0: what the scale would be if the board were displayed at 0°
+            const scaleAt0 = Math.min(
+                rect.width  / AppState.boardWidth,
+                rect.height / AppState.boardHeight
+            );
+
+            // scaleAt90: the scale actually applied when the board is rotated 90°
+            const scaleAt90 = Math.min(
+                rect.width  / AppState.boardHeight,
+                rect.height / AppState.boardWidth
+            );
+
+            scaleFactor = scaleAt90 / scaleAt0;
+
+            // Canvas dimensions: work backwards from the container height so the
+            // rotated-and-scaled canvas fills the container.
+            const visualHeight = rect.height;
+            const swappedAspectRatio = AppState.boardHeight / AppState.boardWidth;
+            const visualWidth = visualHeight * swappedAspectRatio;
+
+            width  = visualHeight / scaleFactor;
+            height = visualWidth  / scaleFactor;
         } else {
-            height = width / aspectRatio;
+            // At 0°/180°, no scaling, normal aspect ratio
+            const aspectRatio = AppState.boardWidth / AppState.boardHeight;
+            width = rect.width;
+            height = rect.height;
+
+            if (width / height > aspectRatio) {
+                width = height * aspectRatio;
+            } else {
+                height = width / aspectRatio;
+            }
         }
 
         // Round to integers so every coordinate system (canvas attribute,
@@ -167,7 +202,27 @@ const Board = {
         AppState.canvas.style.width = width + 'px';
         AppState.canvas.style.height = height + 'px';
 
-        // Center the canvas to match the background image positioning
+        // Calculate referenceScale: the effective scale at the current container size
+        // (used by elements.js to maintain constant px-per-cm regardless of board rotation).
+        // Always derive from the current container rect so zoom changes are reflected.
+        const aspectRatio = AppState.boardWidth / AppState.boardHeight;
+        let refWidth  = rect.width;
+        let refHeight = rect.height;
+
+        if (refWidth / refHeight > aspectRatio) {
+            refWidth = refHeight * aspectRatio;
+        } else {
+            refHeight = refWidth / aspectRatio;
+        }
+        AppState.referenceScale = Math.min(refWidth / AppState.boardWidth, refHeight / AppState.boardHeight);
+
+        // Store the board rotation scale factor for use in updateBoardVisualRotation()
+        // This is calculated once in resize() to avoid getBoundingClientRect() zoom issues
+        AppState.boardRotationScaleFactor = scaleFactor;
+
+        // Center the canvas
+        // Since transform-origin is "center center", the canvas rotates/scales around its center point
+        // To center the canvas in the container, we position it so its center aligns with container center
         const offsetX = (rect.width - width) / 2;
         const offsetY = (rect.height - height) / 2;
         AppState.canvas.style.left = offsetX + 'px';
@@ -193,19 +248,28 @@ const Board = {
         drawingLayer.style.left = offsetX + 'px';
         drawingLayer.style.top = offsetY + 'px';
 
-        // Update players layer to cover full container at (0,0)
-        const playersLayer = document.getElementById('players-layer');
-        playersLayer.style.width = rect.width + 'px';
-        playersLayer.style.height = rect.height + 'px';
-        playersLayer.style.left = '0';
-        playersLayer.style.top = '0';
+        // Update court SVG size and position
+        const courtSvg = document.getElementById('court-svg');
+        if (courtSvg) {
+            courtSvg.style.width = width + 'px';
+            courtSvg.style.height = height + 'px';
+            courtSvg.style.left = offsetX + 'px';
+            courtSvg.style.top = offsetY + 'px';
+        }
 
-        // Inner board-area matches the canvas position/size within the container
+        // Players layer should be exactly the same size and position as board-canvas
+        const playersLayer = document.getElementById('players-layer');
+        playersLayer.style.width = width + 'px';
+        playersLayer.style.height = height + 'px';
+        playersLayer.style.left = offsetX + 'px';
+        playersLayer.style.top = offsetY + 'px';
+
+        // board-area is at (0,0) inside players-layer, same size as players-layer
         const boardArea = document.getElementById('board-area');
-        boardArea.style.width = width + 'px';
-        boardArea.style.height = height + 'px';
-        boardArea.style.left = offsetX + 'px';
-        boardArea.style.top = offsetY + 'px';
+        boardArea.style.width = '100%';
+        boardArea.style.height = '100%';
+        boardArea.style.left = '0';
+        boardArea.style.top = '0';
 
         this.draw();
 
@@ -237,6 +301,15 @@ const Board = {
         if (typeof Animations !== 'undefined') {
             Animations.renderParentPaths();
         }
+
+        // Re-apply the CSS rotate+scale transform with the updated scaleFactor so the
+        // visual canvas fills the container.  App.updateBoardVisualRotation() is the
+        // authoritative setter for the CSS transform; we call it here so that ANY
+        // resize() call (window resize, sidebar change, rotation) keeps the display
+        // in sync without relying on callers to remember to invoke it.
+        if (typeof App !== 'undefined' && App.updateBoardVisualRotation) {
+            App.updateBoardVisualRotation();
+        }
     },
 
     // Draw the futsal court (now using SVG background)
@@ -246,8 +319,11 @@ const Board = {
         // No need to draw anything on canvas
     },
 
-    // Convert board coordinates to screen coordinates
+    // Convert board coordinates to canvas/board-area coordinates (pre-transform)
     boardToScreen(x, y) {
+        // Canvas dimensions are already adjusted for rotation in resize()
+        // At 90°/270°, canvas.width/height are pre-swapped to match the rotated board
+        // So we always use canvas.width/height directly without additional swapping
         const scaleX = AppState.canvas.width / AppState.boardWidth;
         const scaleY = AppState.canvas.height / AppState.boardHeight;
 
@@ -257,8 +333,10 @@ const Board = {
         };
     },
 
-    // Convert screen coordinates to board coordinates
+    // Convert canvas/board-area coordinates to board coordinates
     screenToBoard(x, y) {
+        // Canvas dimensions are already adjusted for rotation in resize()
+        // So we always use canvas.width/height directly
         const scaleX = AppState.boardWidth / AppState.canvas.width;
         const scaleY = AppState.boardHeight / AppState.canvas.height;
 

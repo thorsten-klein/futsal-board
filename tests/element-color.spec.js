@@ -166,6 +166,7 @@ test.describe('Element Color', () => {
     });
 
     test('Color menu item only appears for colorable elements', async ({ page }) => {
+        test.setTimeout(30000); // Long loop: 5 colorable + 4 non-colorable types
         // Test colorable element types - should show color menu item
         const colorableTypes = ['cone', 'ladder', 'pole', 'small-hurdle', 'ball-box'];
 

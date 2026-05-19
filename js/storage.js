@@ -27,6 +27,24 @@ const Storage = {
 
         // Add board button
         document.getElementById('btn-add-board').addEventListener('click', () => this.addBoard());
+        document.getElementById('btn-expand-all-boards').addEventListener('click', () => this.expandAllBoards());
+        document.getElementById('btn-collapse-all-boards').addEventListener('click', () => this.collapseAllBoards());
+        document.getElementById('btn-move-board-up').addEventListener('click', () => this.moveBoardUp(AppState.currentBoardId));
+        document.getElementById('btn-move-board-down').addEventListener('click', () => this.moveBoardDown(AppState.currentBoardId));
+
+        const searchInput = document.getElementById('boards-search');
+        const searchClear = document.getElementById('boards-search-clear');
+        searchInput.addEventListener('input', () => {
+            const q = searchInput.value;
+            searchClear.classList.toggle('hidden', q.length === 0);
+            this.renderBoardsList();
+        });
+        searchClear.addEventListener('click', () => {
+            searchInput.value = '';
+            searchClear.classList.add('hidden');
+            searchInput.focus();
+            this.renderBoardsList();
+        });
 
         // File input handlers
         document.getElementById('import-board-input').addEventListener('change', (e) => this.handleBoardImport(e));
@@ -336,6 +354,9 @@ const Storage = {
         const container = document.getElementById('boards-list');
         if (!container) return;
 
+        const searchInput = document.getElementById('boards-search');
+        const query = searchInput ? searchInput.value.trim() : '';
+
         // Auto-expand all boards with children only on very first render
         if (!this.hasInitiallyRendered) {
             this.hasInitiallyRendered = true;
@@ -346,22 +367,72 @@ const Storage = {
             });
         }
 
+        // When a query is active: compute which boards are visible (matches + ancestors)
+        // and force-expand ancestors so matching children are reachable.
+        let visibleIds = null; // null = show all
+        let matchingIds = null;
+        if (query.length > 0) {
+            const q = query.toLowerCase();
+            matchingIds = new Set(AppState.boards.filter(b => b.name.toLowerCase().includes(q)).map(b => b.id));
+            visibleIds = new Set(matchingIds);
+            // Add all ancestors of matching boards
+            matchingIds.forEach(id => {
+                let board = AppState.boards.find(b => b.id === id);
+                while (board && board.parentId) {
+                    visibleIds.add(board.parentId);
+                    board = AppState.boards.find(b => b.id === board.parentId);
+                }
+            });
+            // Force-expand any ancestor that has visible children
+            visibleIds.forEach(id => {
+                const board = AppState.boards.find(b => b.id === id);
+                if (board && board.children && board.children.length > 0) {
+                    this.expandedBoards.add(id);
+                }
+            });
+        }
+
         const tree = document.createElement('ul');
         tree.className = 'board-tree';
 
-        // Only render root boards (boards without parents)
         const rootBoards = AppState.boards.filter(b => !b.parentId);
-        rootBoards.forEach(board => {
-            const treeItem = this.createBoardTreeItem(board);
-            tree.appendChild(treeItem);
-        });
+
+        if (visibleIds !== null && visibleIds.size === 0) {
+            // No matches at all — show empty message inside the list
+            const empty = document.createElement('li');
+            empty.className = 'board-search-empty';
+            empty.textContent = 'No boards found';
+            tree.appendChild(empty);
+        } else {
+            rootBoards.forEach(board => {
+                if (visibleIds === null || visibleIds.has(board.id)) {
+                    const treeItem = this.createBoardTreeItem(board, 0, visibleIds, matchingIds, query);
+                    tree.appendChild(treeItem);
+                }
+            });
+        }
 
         container.innerHTML = '';
         container.appendChild(tree);
+
+        this.updateMoveBoardButtons();
+    },
+
+    // Highlight query matches inside a board name
+    _highlightMatch(name, query) {
+        const idx = name.toLowerCase().indexOf(query.toLowerCase());
+        if (idx === -1) return document.createTextNode(name);
+        const span = document.createElement('span');
+        span.appendChild(document.createTextNode(name.slice(0, idx)));
+        const mark = document.createElement('mark');
+        mark.textContent = name.slice(idx, idx + query.length);
+        span.appendChild(mark);
+        span.appendChild(document.createTextNode(name.slice(idx + query.length)));
+        return span;
     },
 
     // Create a board tree item
-    createBoardTreeItem(board, level = 0) {
+    createBoardTreeItem(board, level = 0, visibleIds = null, matchingIds = null, query = '') {
         const li = document.createElement('li');
         li.className = 'board-tree-item';
 
@@ -374,10 +445,15 @@ const Storage = {
         }
 
         const hasChildren = board.children && board.children.length > 0;
+        // When filtering, only count visible children
+        const visibleChildren = hasChildren
+            ? board.children.filter(id => visibleIds === null || visibleIds.has(id))
+            : [];
+        const hasVisibleChildren = visibleChildren.length > 0;
         const isExpanded = this.expandedBoards.has(board.id);
 
-        // Expand/collapse icon (only if has children)
-        if (hasChildren) {
+        // Expand/collapse icon (only if has visible children)
+        if (hasVisibleChildren) {
             const expandIcon = document.createElement('div');
             expandIcon.className = 'board-expand-icon';
             if (isExpanded) {
@@ -403,10 +479,14 @@ const Storage = {
             item.appendChild(spacer);
         }
 
-        // Name
+        // Name — highlight match when searching
         const name = document.createElement('div');
         name.className = 'board-item-name';
-        name.textContent = board.name;
+        if (query && matchingIds && matchingIds.has(board.id)) {
+            name.appendChild(this._highlightMatch(board.name, query));
+        } else {
+            name.textContent = board.name;
+        }
 
         item.appendChild(name);
 
@@ -432,15 +512,16 @@ const Storage = {
 
         li.appendChild(item);
 
-        // Render children (only if expanded)
-        if (hasChildren && isExpanded) {
+        // Render children (only if expanded, and filtered to visible ones)
+        if (hasVisibleChildren && isExpanded) {
             const childrenUl = document.createElement('ul');
             childrenUl.className = 'board-tree-children';
             const childItems = [];
             board.children.forEach(childId => {
+                if (visibleIds !== null && !visibleIds.has(childId)) return;
                 const childBoard = AppState.boards.find(b => b.id === childId);
                 if (childBoard) {
-                    childItems.push(this.createBoardTreeItem(childBoard, level + 1));
+                    childItems.push(this.createBoardTreeItem(childBoard, level + 1, visibleIds, matchingIds, query));
                 }
             });
             childItems.forEach((childItem, index) => {
@@ -463,6 +544,98 @@ const Storage = {
             this.expandedBoards.add(boardId);
         }
         this.renderBoardsList();
+    },
+
+    expandAllBoards() {
+        AppState.boards.forEach(board => {
+            if (board.children && board.children.length > 0) {
+                this.expandedBoards.add(board.id);
+            }
+        });
+        this.renderBoardsList();
+    },
+
+    collapseAllBoards() {
+        this.expandedBoards.clear();
+        this.renderBoardsList();
+    },
+
+    // Return the ordered sibling list for a given board id
+    // (root boards = AppState.boards filtered by !parentId; children = parent.children)
+    _getBoardSiblings(boardId) {
+        const board = AppState.boards.find(b => b.id === boardId);
+        if (!board) return [];
+        if (!board.parentId) {
+            return AppState.boards.filter(b => !b.parentId);
+        }
+        const parent = AppState.boards.find(b => b.id === board.parentId);
+        if (!parent) return [];
+        return parent.children
+            .map(id => AppState.boards.find(b => b.id === id))
+            .filter(Boolean);
+    },
+
+    moveBoardUp(boardId) {
+        const board = AppState.boards.find(b => b.id === boardId);
+        if (!board) return;
+
+        if (!board.parentId) {
+            // Root board: swap in AppState.boards among root boards
+            const idx = AppState.boards.indexOf(board);
+            // Find the previous root board
+            let prevIdx = -1;
+            for (let i = idx - 1; i >= 0; i--) {
+                if (!AppState.boards[i].parentId) { prevIdx = i; break; }
+            }
+            if (prevIdx === -1) return;
+            [AppState.boards[prevIdx], AppState.boards[idx]] = [AppState.boards[idx], AppState.boards[prevIdx]];
+        } else {
+            const parent = AppState.boards.find(b => b.id === board.parentId);
+            if (!parent) return;
+            const idx = parent.children.indexOf(boardId);
+            if (idx <= 0) return;
+            [parent.children[idx - 1], parent.children[idx]] = [parent.children[idx], parent.children[idx - 1]];
+        }
+
+        AppState.saveToLocalStorage();
+        this.renderBoardsList();
+    },
+
+    moveBoardDown(boardId) {
+        const board = AppState.boards.find(b => b.id === boardId);
+        if (!board) return;
+
+        if (!board.parentId) {
+            const idx = AppState.boards.indexOf(board);
+            let nextIdx = -1;
+            for (let i = idx + 1; i < AppState.boards.length; i++) {
+                if (!AppState.boards[i].parentId) { nextIdx = i; break; }
+            }
+            if (nextIdx === -1) return;
+            [AppState.boards[idx], AppState.boards[nextIdx]] = [AppState.boards[nextIdx], AppState.boards[idx]];
+        } else {
+            const parent = AppState.boards.find(b => b.id === board.parentId);
+            if (!parent) return;
+            const idx = parent.children.indexOf(boardId);
+            if (idx === -1 || idx >= parent.children.length - 1) return;
+            [parent.children[idx], parent.children[idx + 1]] = [parent.children[idx + 1], parent.children[idx]];
+        }
+
+        AppState.saveToLocalStorage();
+        this.renderBoardsList();
+    },
+
+    // Update move-up / move-down button disabled state for the current board
+    updateMoveBoardButtons() {
+        const upBtn   = document.getElementById('btn-move-board-up');
+        const downBtn = document.getElementById('btn-move-board-down');
+        if (!upBtn || !downBtn) return;
+
+        const siblings = this._getBoardSiblings(AppState.currentBoardId);
+        const idx = siblings.findIndex(b => b.id === AppState.currentBoardId);
+
+        upBtn.disabled   = siblings.length === 0 || idx <= 0;
+        downBtn.disabled = siblings.length === 0 || idx >= siblings.length - 1;
     },
 
     // Switch to a different board

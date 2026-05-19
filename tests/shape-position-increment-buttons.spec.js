@@ -83,8 +83,9 @@ test.describe('Shape Position Increment Buttons', () => {
         const firstClickX = await page.locator('#position-modal-x').inputValue();
         const firstClickXNum = parseInt(firstClickX);
 
-        // First click should round up to nearest 50
-        const expectedFirstClick = Math.ceil(initialXNum / 50) * 50;
+        // First click should always increment to the next multiple of 50,
+        // even if the current value is already on a 50 boundary.
+        const expectedFirstClick = Math.ceil((initialXNum + 1) / 50) * 50;
         expect(firstClickXNum).toBe(expectedFirstClick);
 
         // Click increase again
