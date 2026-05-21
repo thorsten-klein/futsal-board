@@ -63,6 +63,16 @@ const Animations = {
         document.getElementById('btn-play-frame').addEventListener('click', () => this.playFrame());
         document.getElementById('btn-stop').addEventListener('click', () => this.goToFrameEnd());
 
+        // Collapse / expand animation player
+        document.getElementById('btn-collapse-player').addEventListener('click', () => {
+            const overlay = document.getElementById('animation-player-overlay');
+            const btn = document.getElementById('btn-collapse-player');
+            const collapsed = overlay.classList.toggle('animation-collapsed');
+            btn.querySelector('.collapse-icon').style.display = collapsed ? 'none' : '';
+            btn.querySelector('.expand-icon').style.display = collapsed ? '' : 'none';
+            btn.title = collapsed ? 'Expand player' : 'Collapse player';
+        });
+
         // Setup animation quality menu
         this.setupAnimationMenu();
 

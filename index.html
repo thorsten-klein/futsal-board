@@ -2196,6 +2196,10 @@ body.touch-mode.show-touch-debug .touch-overlay {
     height: auto;
 }
 
+.animation-player-overlay.animation-collapsed .animation-collapsible {
+    display: none;
+}
+
 /* Animation Player Overlay */
 .animation-player-overlay {
     position: absolute;
@@ -2212,7 +2216,7 @@ body.touch-mode.show-touch-debug .touch-overlay {
     border-radius: 13px;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18), 0 1px 4px rgba(0,0,0,0.08);
     border: 1px solid rgba(255, 255, 255, 0.7);
-    z-index: 99999;
+    z-index: 300;
     user-select: none;
 }
 
@@ -2930,9 +2934,26 @@ body.touch-mode.show-touch-debug .touch-overlay {
                         </svg>
                     </span>
 
-                    <div class="animation-divider"></div>
+                    <button id="btn-collapse-player" class="btn btn-secondary" title="Collapse player">
+                        <svg class="collapse-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="11 17 6 12 11 7"/>
+                            <polyline points="18 17 13 12 18 7"/>
+                        </svg>
+                        <svg class="expand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+                            <polyline points="13 17 18 12 13 7"/>
+                            <polyline points="6 17 11 12 6 7"/>
+                        </svg>
+                    </button>
 
-                    <button id="btn-play-pause" class="btn btn-primary" title="Play/Pause">
+                    <div class="animation-divider animation-collapsible"></div>
+
+                    <button id="btn-go-to-start" class="btn btn-secondary animation-collapsible" title="Go to frame start">
+                        <svg width="28" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <line x1="5" y1="3" x2="5" y2="21" stroke="currentColor" stroke-width="2"/>
+                            <polygon points="19 3 5 12 19 21 19 3"/>
+                        </svg>
+                    </button>
+                    <button id="btn-play-pause" class="btn btn-primary animation-collapsible" title="Play/Pause">
                         <svg width="28" height="20" viewBox="0 0 24 24" fill="currentColor" class="play-icon">
                             <polygon points="5 3 19 12 5 21 5 3"/>
                         </svg>
@@ -2941,28 +2962,22 @@ body.touch-mode.show-touch-debug .touch-overlay {
                             <rect x="14" y="4" width="4" height="16"/>
                         </svg>
                     </button>
-                    <button id="btn-go-to-start" class="btn btn-secondary" title="Go to frame start">
-                        <svg width="28" height="20" viewBox="0 0 24 24" fill="currentColor">
-                            <line x1="5" y1="3" x2="5" y2="21" stroke="currentColor" stroke-width="2"/>
-                            <polygon points="19 3 5 12 19 21 19 3"/>
-                        </svg>
-                    </button>
-                    <button id="btn-play-frame" class="btn btn-secondary" title="Play this frame">
+                    <button id="btn-play-frame" class="btn btn-secondary animation-collapsible" title="Play this frame">
                         <svg width="28" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <rect x="2" y="3" width="20" height="18" rx="2" fill="none"/>
                             <polygon points="9 7 9 17 17 12 9 7" fill="currentColor" stroke="none"/>
                         </svg>
                     </button>
-                    <button id="btn-stop" class="btn btn-secondary" title="Go to frame end">
+                    <button id="btn-stop" class="btn btn-secondary animation-collapsible" title="Go to frame end">
                         <svg width="28" height="20" viewBox="0 0 24 24" fill="currentColor">
                             <polygon points="5 3 19 12 5 21 5 3"/>
                             <line x1="19" y1="3" x2="19" y2="21" stroke="currentColor" stroke-width="2"/>
                         </svg>
                     </button>
 
-                    <div class="animation-divider"></div>
+                    <div class="animation-divider animation-collapsible"></div>
 
-                    <select id="animation-speed-dropdown" class="animation-dropdown" title="Speed (time per frame)">
+                    <select id="animation-speed-dropdown" class="animation-dropdown animation-collapsible" title="Speed (time per frame)">
                         <option value="200">0.2s</option>
                         <option value="500">0.5s</option>
                         <option value="1000">1.0s</option>
@@ -2974,9 +2989,9 @@ body.touch-mode.show-touch-debug .touch-overlay {
                         <option value="5000">5.0s</option>
                     </select>
 
-                    <div class="animation-divider"></div>
+                    <div class="animation-divider animation-collapsible"></div>
 
-                    <button id="btn-toggle-paths" class="btn btn-secondary btn-toggle active" title="Show paths (during Play)">
+                    <button id="btn-toggle-paths" class="btn btn-secondary btn-toggle active animation-collapsible" title="Show paths (during Play)">
                         <svg width="28" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <line x1="2" y1="12" x2="22" y2="12" stroke-linecap="round"/>
                             <circle cx="2" cy="12" r="1.5" fill="currentColor"/>
@@ -2984,13 +2999,13 @@ body.touch-mode.show-touch-debug .touch-overlay {
                             <circle cx="22" cy="12" r="1.5" fill="currentColor"/>
                         </svg>
                     </button>
-                    <button id="btn-toggle-path-labels" class="btn btn-secondary btn-toggle active" title="Show path labels (during Play)">
+                    <button id="btn-toggle-path-labels" class="btn btn-secondary btn-toggle active animation-collapsible" title="Show path labels (during Play)">
                         <svg width="28" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <line x1="2" y1="16" x2="22" y2="16" stroke-linecap="round"/>
                             <text x="12" y="12" text-anchor="middle" font-size="12" fill="currentColor" stroke="none" font-weight="bold">A</text>
                         </svg>
                     </button>
-                    <button id="btn-toggle-remove-paths" class="btn btn-secondary btn-toggle active" title="Remove previous frame paths (during Play)">
+                    <button id="btn-toggle-remove-paths" class="btn btn-secondary btn-toggle active animation-collapsible" title="Remove previous frame paths (during Play)">
                         <svg width="28" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <line x1="2" y1="12" x2="10" y2="12" stroke-linecap="round" opacity="0.3"/>
                             <line x1="14" y1="12" x2="22" y2="12" stroke-linecap="round"/>
@@ -2998,21 +3013,21 @@ body.touch-mode.show-touch-debug .touch-overlay {
                             <line x1="14" y1="8" x2="8" y2="16" stroke-linecap="round"/>
                         </svg>
                     </button>
-                    <button id="btn-toggle-ghosts" class="btn btn-secondary btn-toggle" title="Show ghosts (during Play)">
+                    <button id="btn-toggle-ghosts" class="btn btn-secondary btn-toggle animation-collapsible" title="Show ghosts (during Play)">
                         <svg width="28" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <circle cx="12" cy="12" r="11" fill="#ddd" stroke="none"/>
                             <circle cx="12" cy="7" r="3" opacity="0.4"/>
                             <path d="M6 20 C6 16, 8 14, 12 14 C16 14, 18 16, 18 20" opacity="0.4"/>
                         </svg>
                     </button>
-                    <button id="btn-toggle-repeat" class="btn btn-secondary btn-toggle" title="Repeat animation">
+                    <button id="btn-toggle-repeat" class="btn btn-secondary btn-toggle animation-collapsible" title="Repeat animation">
                         <svg width="28" height="20" viewBox="0 0 16 16" fill="currentColor">
                             <path d="M11 5.466V4H5a4 4 0 0 0-3.584 5.777.5.5 0 1 1-.896.446A5 5 0 0 1 5 3h6V1.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384l-2.36 1.966a.25.25 0 0 1-.41-.192m3.81.086a.5.5 0 0 1 .67.225A5 5 0 0 1 11 13H5v1.466a.25.25 0 0 1-.41.192l-2.36-1.966a.25.25 0 0 1 0-.384l2.36-1.966a.25.25 0 0 1 .41.192V12h6a4 4 0 0 0 3.585-5.777.5.5 0 0 1 .225-.67Z"/>
                         </svg>
                     </button>
                     </div>
                     <!-- Progress / scrubber bar -->
-                    <div id="animation-progress-container" class="animation-progress-container" title="Click or drag to seek">
+                    <div id="animation-progress-container" class="animation-progress-container animation-collapsible" title="Click or drag to seek">
                         <div id="animation-progress-fill" class="animation-progress-fill"></div>
                         <div id="animation-progress-dot" class="animation-progress-dot"></div>
                     </div>

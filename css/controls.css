@@ -713,6 +713,10 @@
     z-index: 300;
 }
 
+.animation-player-overlay.animation-collapsed .animation-collapsible {
+    display: none;
+}
+
 .animation-controls-row {
     display: flex;
     gap: 3px;
