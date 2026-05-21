@@ -641,6 +641,22 @@ const Storage = {
     // Switch to a different board
     switchBoard(boardId) {
         if (boardId !== AppState.currentBoardId) {
+            // If animation is running or paused mid-way, stop it and restore the
+            // current board's real positions before saving.  Otherwise the
+            // in-memory player/ball positions would be the animation intermediates
+            // and saveCurrentBoard() would persist those corrupt values.
+            if (typeof Animations !== 'undefined') {
+                if (AppState.isAnimating) {
+                    Animations.pause();
+                }
+                if (Animations.pausedProgress > 0 && Animations.pausedProgress < 1) {
+                    AppState.restorePositions();
+                    Players.render();
+                    Balls.render();
+                }
+                Animations.pausedProgress = 0;
+            }
+
             // Save current board state first
             AppState.saveCurrentBoard();
 

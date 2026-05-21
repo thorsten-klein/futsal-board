@@ -2070,6 +2070,16 @@ const App = {
             layerClone.style.transform      = 'none';   // strip board rotation/scale
             layerClone.style.transformOrigin = '';
 
+            // Remove selection handles (rotation and resize) so they don't appear
+            // in the exported screenshot when an entity is currently selected.
+            layerClone.querySelectorAll('.rotation-handle, .resize-handle').forEach(el => el.remove());
+
+            // Remove element SVGs from the clone: html-to-image inlines computed
+            // styles on SVG children (including display:none on <defs>/<pattern>),
+            // which breaks url(#id) pattern references and causes element SVGs to
+            // render incorrectly. We draw element SVGs separately below.
+            layerClone.querySelectorAll('.element-svg').forEach(el => el.remove());
+
             wrapper.appendChild(layerClone);
             document.body.appendChild(wrapper);
 
@@ -2081,6 +2091,68 @@ const App = {
 
             document.body.removeChild(wrapper);
             ctx.drawImage(entityCanvas, 0, 0);
+
+            // ── Draw element SVGs (goals, cones, etc.) as SVG images ─────────────
+            // html-to-image cannot reliably render inline SVGs that contain <defs>
+            // with pattern/gradient references. We render each element SVG directly
+            // onto the export canvas by serialising it to a blob URL, stripping the
+            // CSS positioning/transform (which we apply via canvas transforms), and
+            // drawing it at the scaled position.
+            const liveW = parseFloat(playersLayer.style.width)  || w;
+            const liveH = parseFloat(playersLayer.style.height) || h;
+            const esX = w / liveW;   // export scale X
+            const esY = h / liveH;   // export scale Y
+
+            const elementSvgs = playersLayer.querySelectorAll('.element-svg');
+            for (const svgEl of elementSvgs) {
+                const leftPx = parseFloat(svgEl.style.left)  || 0;
+                const topPx  = parseFloat(svgEl.style.top)   || 0;
+                const svgW   = parseFloat(svgEl.getAttribute('width'))  || 0;
+                const svgH   = parseFloat(svgEl.getAttribute('height')) || 0;
+                if (!svgW || !svgH) continue;
+
+                // Parse CSS transform: translate(tx,ty) rotate(deg)
+                const tr = svgEl.style.transform || '';
+                const tMatch = tr.match(/translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/);
+                const rMatch = tr.match(/rotate\((-?[\d.]+)deg\)/);
+                const tx     = tMatch ? parseFloat(tMatch[1]) : 0;
+                const ty     = tMatch ? parseFloat(tMatch[2]) : 0;
+                const rotDeg = rMatch ? parseFloat(rMatch[1]) : 0;
+
+                // Clone the SVG and strip CSS positioning/transform so the SVG
+                // renders its content at (0,0) within its own viewport.
+                const clone = svgEl.cloneNode(true);
+                clone.removeAttribute('style');
+                clone.setAttribute('width',  svgW);
+                clone.setAttribute('height', svgH);
+                // Remove the bgRect (transparent hit-area) — not needed for rendering
+                const bgRect = clone.querySelector('rect[fill="transparent"]');
+                if (bgRect) bgRect.remove();
+
+                const svgStr = new XMLSerializer().serializeToString(clone);
+                // Use a data URI (not createObjectURL) to avoid interfering with
+                // external interceptors that hook URL.createObjectURL.
+                const svgDataUri = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
+
+                await new Promise((resolve) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        // The CSS position (leftPx, topPx) is the pivot (transform-origin
+                        // in players-layer space). The translate (tx,ty) offsets the SVG
+                        // top-left from that pivot. Scale both to export coordinates.
+                        const pivotX = leftPx * esX;
+                        const pivotY = topPx  * esY;
+                        ctx.save();
+                        ctx.translate(pivotX, pivotY);
+                        ctx.rotate(rotDeg * Math.PI / 180);
+                        ctx.drawImage(img, tx * esX, ty * esY, svgW * esX, svgH * esY);
+                        ctx.restore();
+                        resolve();
+                    };
+                    img.onerror = () => resolve();
+                    img.src = svgDataUri;
+                });
+            }
         }
 
         // ── Apply board rotation to produce the final output canvas ───────────

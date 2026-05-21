@@ -832,6 +832,7 @@ const Animations = {
                     player.x = startPos.x;
                     player.y = startPos.y;
                     player.rotation = startPos.rotation || 0;
+                    delete player._explicitlySet;
                 }
             });
 
@@ -840,6 +841,7 @@ const Animations = {
                 if (startPos) {
                     ball.x = startPos.x;
                     ball.y = startPos.y;
+                    delete ball._explicitlySet;
                 }
             });
 
@@ -908,6 +910,9 @@ const Animations = {
                     player.x = startPos.x;
                     player.y = startPos.y;
                     player.rotation = startPos.rotation || 0;
+                    // Clear _explicitlySet so saveCurrentBoard() won't persist this
+                    // temporary start position if the user navigates away mid-animation.
+                    delete player._explicitlySet;
                 }
             });
 
@@ -916,6 +921,8 @@ const Animations = {
                 if (startPos) {
                     ball.x = startPos.x;
                     ball.y = startPos.y;
+                    // Same guard for balls.
+                    delete ball._explicitlySet;
                 }
             });
 
