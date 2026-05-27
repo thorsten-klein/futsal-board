@@ -9,6 +9,14 @@ const AppState = {
     pitchOffsetY: 250, // Pitch offset in court.svg
     boardRotation: 0,  // Board rotation in degrees (0, 90, 180, 270)
 
+    // Zoom + pan (1.0 = fit-to-container; pan in container pixels)
+    boardZoom: 1,
+    boardPanX: 0,
+    boardPanY: 0,
+    boardZoomMin: 1,
+    boardZoomMax: 4,
+    boardZoomStep: 1.5,
+
     // Current tool
     currentTool: 'select',
 

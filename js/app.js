@@ -283,10 +283,12 @@ const Utils = {
         const canvasRect = canvas.getBoundingClientRect();
 
         if (rotation === 0) {
-            // No rotation: simple conversion
-            // Click is relative to canvas visual position
-            const canvasX = clientX - canvasRect.left;
-            const canvasY = clientY - canvasRect.top;
+            // No rotation: use canvasRect (already includes zoom) to scale screen
+            // pixels back into canvas-internal pixels, then map to board coords.
+            const sx = canvasRect.width / canvas.width;
+            const sy = canvasRect.height / canvas.height;
+            const canvasX = (clientX - canvasRect.left) / (sx || 1);
+            const canvasY = (clientY - canvasRect.top) / (sy || 1);
             return Board.screenToBoard(canvasX, canvasY);
         }
 
@@ -298,8 +300,10 @@ const Utils = {
         const transform = style.transform;
 
         if (transform === 'none') {
-            const canvasX = clientX - canvasRect.left;
-            const canvasY = clientY - canvasRect.top;
+            const sx = canvasRect.width / canvas.width;
+            const sy = canvasRect.height / canvas.height;
+            const canvasX = (clientX - canvasRect.left) / (sx || 1);
+            const canvasY = (clientY - canvasRect.top) / (sy || 1);
             return Board.screenToBoard(canvasX, canvasY);
         }
 
@@ -341,11 +345,14 @@ const Utils = {
         const canvasRect = canvas.getBoundingClientRect();
 
         if (rotation === 0) {
-            // No rotation: simple conversion (inverse of screenToBoardCoords)
+            // No rotation: scale canvas-internal pixels back up by canvasRect/canvas
+            // ratio (which contains the zoom factor) before applying the container offset.
             const canvasPos = Board.boardToScreen(boardX, boardY);
+            const sx = canvasRect.width / canvas.width;
+            const sy = canvasRect.height / canvas.height;
             return {
-                x: canvasPos.x + (canvasRect.left - containerRect.left),
-                y: canvasPos.y + (canvasRect.top - containerRect.top)
+                x: canvasPos.x * sx + (canvasRect.left - containerRect.left),
+                y: canvasPos.y * sy + (canvasRect.top - containerRect.top)
             };
         }
 
@@ -357,9 +364,11 @@ const Utils = {
         const transform = style.transform;
 
         if (transform === 'none') {
+            const sx = canvasRect.width / canvas.width;
+            const sy = canvasRect.height / canvas.height;
             return {
-                x: canvasPos.x + (canvasRect.left - containerRect.left),
-                y: canvasPos.y + (canvasRect.top - containerRect.top)
+                x: canvasPos.x * sx + (canvasRect.left - containerRect.left),
+                y: canvasPos.y * sy + (canvasRect.top - containerRect.top)
             };
         }
 
@@ -785,6 +794,7 @@ const App = {
         Drawings.init();
         Animations.init();
         Storage.init();
+        if (typeof Zoom !== 'undefined') Zoom.init();
 
         // Setup UI
         this.setupSidebarTabs();
@@ -2485,14 +2495,26 @@ const App = {
         // This is already stored in AppState.boardRotationScaleFactor
         // We don't recalculate here to avoid getBoundingClientRect() zoom issues
         const scaleFactor = AppState.boardRotationScaleFactor || 1;
+        const zoom = AppState.boardZoom || 1;
+        const panX = AppState.boardPanX || 0;
+        const panY = AppState.boardPanY || 0;
 
         // Rotate ALL layers together (court SVG, board canvas, paths, drawings, and players-layer)
-        const transform = `rotate(${rotation}deg) scale(${scaleFactor})`;
+        // Zoom is multiplied into the centered scale() so screenToBoardCoords can still
+        // invert it via DOMMatrix.inverse().  Pan is applied via left/top below (NOT via
+        // translate() inside the matrix) — that keeps the matrix purely rotate*scale and
+        // preserves the existing "transform-origin center" math.
+        const transform = `rotate(${rotation}deg) scale(${scaleFactor * zoom})`;
         const layers = [courtSvg, boardCanvas, pathsLayer, drawingLayer, playersLayer];
         layers.forEach(layer => {
             if (layer) {
                 layer.style.transformOrigin = 'center center';
                 layer.style.transform = transform;
+                // Reset any prior pan, then add fresh pan to the layout offset stashed on the element.
+                const baseLeft = parseFloat(layer.dataset.baseLeft || '0');
+                const baseTop = parseFloat(layer.dataset.baseTop || '0');
+                layer.style.left = (baseLeft + panX) + 'px';
+                layer.style.top = (baseTop + panY) + 'px';
             }
         });
 
