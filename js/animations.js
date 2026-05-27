@@ -2492,17 +2492,18 @@ const Animations = {
 
             // Check if ghost is already selected
             if (AppState.selectedGhost === ghostId) {
-                // Already selected, start dragging
-                const rect = AppState.canvas.getBoundingClientRect();
-                const scaleX = AppState.boardWidth / rect.width;
-                const scaleY = AppState.boardHeight / rect.height;
+                // Already selected, start dragging.  Use Utils.screenToBoardCoords
+                // (not a naive rect-relative conversion) so that board rotation
+                // is inverted — otherwise dragging on a 90°/180°/270° rotated
+                // board moves the ghost in the wrong direction.
+                const boardCoords = Utils.screenToBoardCoords(clientX, clientY);
 
                 this.draggedGhost = {
                     key,
                     index,
                     ghostId, // Store the actual ghost ID for updates
-                    offsetX: (clientX - rect.left) * scaleX - intermediates[index].x,
-                    offsetY: (clientY - rect.top) * scaleY - intermediates[index].y
+                    offsetX: boardCoords.x - intermediates[index].x,
+                    offsetY: boardCoords.y - intermediates[index].y
                 };
 
                 // Update position display
@@ -2551,15 +2552,14 @@ const Animations = {
                 if (!intermediates || !intermediates[this.rotatingGhost.index]) return;
 
                 const intermediate = intermediates[this.rotatingGhost.index];
-                const rect = AppState.canvas.getBoundingClientRect();
-                const scaleX = rect.width / AppState.boardWidth;
-                const scaleY = rect.height / AppState.boardHeight;
 
-                const centerX = intermediate.x * scaleX;
-                const centerY = intermediate.y * scaleY;
-
-                const dx = clientX - rect.left - centerX;
-                const dy = clientY - rect.top - centerY;
+                // Compute the angle in BOARD coordinates (not raw screen
+                // coordinates) so the rotation handle behaves correctly when
+                // the board is itself rotated.  Mirrors
+                // Players.handleRotationMove.
+                const mouseBoardPos = Utils.screenToBoardCoords(clientX, clientY);
+                const dx = mouseBoardPos.x - intermediate.x;
+                const dy = mouseBoardPos.y - intermediate.y;
 
                 let angle = Math.atan2(dy, dx) * (180 / Math.PI);
                 angle = (angle + 90 + 360) % 360;
@@ -2571,10 +2571,14 @@ const Animations = {
                 if (ghostElement) {
                     ghostElement.style.transform = `rotate(${Math.round(angle)}deg)`;
 
-                    // Counter-rotate the number to keep it upright
+                    // Counter-rotate the number to keep it upright. Must
+                    // include board rotation since the players-layer is
+                    // also CSS-rotated by boardRotation.
                     const numberSpan = ghostElement.querySelector('.player-number');
-                    if (numberSpan && Math.round(angle) !== 0) {
-                        numberSpan.style.transform = `rotate(${-Math.round(angle)}deg)`;
+                    if (numberSpan) {
+                        const boardRotation = AppState.boardRotation || 0;
+                        const totalCounterRotation = -(Math.round(angle) + boardRotation);
+                        numberSpan.style.transform = `rotate(${totalCounterRotation}deg)`;
                     }
                 }
 
@@ -2586,12 +2590,12 @@ const Animations = {
 
             e.preventDefault();
 
-            const rect = AppState.canvas.getBoundingClientRect();
-            const scaleX = AppState.boardWidth / rect.width;
-            const scaleY = AppState.boardHeight / rect.height;
+            // Use Utils.screenToBoardCoords so the conversion correctly
+            // inverts the CSS rotation applied to the players-layer.
+            const boardCoords = Utils.screenToBoardCoords(clientX, clientY);
 
-            let newX = (clientX - rect.left) * scaleX - this.draggedGhost.offsetX;
-            let newY = (clientY - rect.top) * scaleY - this.draggedGhost.offsetY;
+            let newX = boardCoords.x - this.draggedGhost.offsetX;
+            let newY = boardCoords.y - this.draggedGhost.offsetY;
 
             // Keep within board bounds
             newX = Math.max(0, Math.min(AppState.boardWidth, newX));
@@ -3556,9 +3560,13 @@ const Animations = {
         const scaleX = AppState.canvas.width / AppState.boardWidth;
         const scaleY = AppState.canvas.height / AppState.boardHeight;
 
-        // Calculate canvas rect ONCE for all ghosts to avoid reflow issues
+        // Use referenceScale for player sizing so ghosts stay the same visual
+        // size as real players regardless of board rotation (90°/270° change
+        // the canvas-rect width via CSS scaleFactor, but referenceScale is
+        // rotation-invariant — see Players.createPlayerElement which does the
+        // same).
         const canvasRect = AppState.canvas.getBoundingClientRect();
-        const displayScaleX = canvasRect.width / AppState.boardWidth;
+        const displayScaleX = AppState.referenceScale || (canvasRect.width / AppState.boardWidth);
 
         // Calculate current phase if animating or paused mid-animation
         let currentPhase = null;
@@ -3801,6 +3809,7 @@ const Animations = {
 
         // Get rotation from the position object passed in (not from current player)
         const rotation = pos.rotation !== undefined ? pos.rotation : 0;
+        const boardRotation = AppState.boardRotation || 0;
 
         // Apply rotation
         if (rotation !== 0) {
@@ -3819,9 +3828,13 @@ const Animations = {
         numberSpan.className = 'player-number';
         numberSpan.style.color = Players.isBrightColor(color) ? '#000000' : '#ffffff';
 
-        // Counter-rotate the number to keep it upright
-        if (rotation !== 0) {
-            numberSpan.style.transform = `rotate(${-rotation}deg)`;
+        // Counter-rotate the number to keep it upright. Account for both the
+        // ghost's own rotation AND the board CSS rotation (the players-layer
+        // is rotated by boardRotation around its center).  Mirrors
+        // Players.createPlayerElement.
+        const totalCounterRotation = -(rotation + boardRotation);
+        if (totalCounterRotation !== 0) {
+            numberSpan.style.transform = `rotate(${totalCounterRotation}deg)`;
             numberSpan.style.display = 'inline-block';
         }
 
