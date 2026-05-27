@@ -81,7 +81,11 @@
 
 #paths-layer {
     position: absolute;
-    z-index: 2;
+    /* paths-layer is a child of players-layer (shares its rotated stacking
+       context). z-index 45 sits ABOVE shapes (11-15) and elements (30-37) but
+       BELOW players (50), so path lines render at the same logical level as
+       their source entity without obscuring the players themselves. */
+    z-index: 45;
     pointer-events: none;
 }
 

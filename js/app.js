@@ -2499,13 +2499,15 @@ const App = {
         const panX = AppState.boardPanX || 0;
         const panY = AppState.boardPanY || 0;
 
-        // Rotate ALL layers together (court SVG, board canvas, paths, drawings, and players-layer)
+        // Rotate ALL layers together (court SVG, board canvas, drawings, and players-layer).
+        // NOTE: paths-layer is a child of players-layer, so it INHERITS the rotation/scale
+        // from its ancestor — applying the transform to it directly would double-apply.
         // Zoom is multiplied into the centered scale() so screenToBoardCoords can still
         // invert it via DOMMatrix.inverse().  Pan is applied via left/top below (NOT via
         // translate() inside the matrix) — that keeps the matrix purely rotate*scale and
         // preserves the existing "transform-origin center" math.
         const transform = `rotate(${rotation}deg) scale(${scaleFactor * zoom})`;
-        const layers = [courtSvg, boardCanvas, pathsLayer, drawingLayer, playersLayer];
+        const layers = [courtSvg, boardCanvas, drawingLayer, playersLayer];
         layers.forEach(layer => {
             if (layer) {
                 layer.style.transformOrigin = 'center center';

@@ -3788,7 +3788,11 @@ const Animations = {
         div.style.userSelect = 'none';
         div.style.pointerEvents = selectable ? 'all' : 'none';
         div.style.opacity = '0.5';
-        div.style.zIndex = '6'; // Animation paths z-index
+        // Match the real player's *touch-overlay* z-index (150), not just the
+        // player visual (50).  Shape touch overlays sit at 111–115, so a ghost
+        // at z=50 gets clicks swallowed by shapes in touch mode.  Sitting at
+        // 150 keeps the ghost tappable on top of any shape/element overlay.
+        div.style.zIndex = '150';
 
         // Add the ::before pseudo-element styling inline via a style element
         const beforeStyle = document.createElement('style');
@@ -3891,6 +3895,9 @@ const Animations = {
         svg.setAttribute('height', height);
         svg.style.transform = `translate(${-width/2}px, ${-height/2}px)`;
         svg.style.opacity = '0.2';
+        // Match the ball's touch-overlay z-index (140), see createGhostPlayerSVG
+        // for the rationale.
+        svg.style.zIndex = '140';
         svg.dataset.ghostKey = `${ghostId}`;
 
         // Create ball using Balls module SVG

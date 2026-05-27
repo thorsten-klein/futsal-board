@@ -857,7 +857,11 @@ body {
 
 #paths-layer {
     position: absolute;
-    z-index: 2;
+    /* paths-layer is a child of players-layer (shares its rotated stacking
+       context). z-index 45 sits ABOVE shapes (11-15) and elements (30-37) but
+       BELOW players (50), so path lines render at the same logical level as
+       their source entity without obscuring the players themselves. */
+    z-index: 45;
     pointer-events: none;
 }
 
@@ -2945,8 +2949,7 @@ body.touch-mode.show-touch-debug .touch-overlay {
 </svg>
                 <canvas id="board-canvas" role="img" aria-label="Futsal tactics board"></canvas>
                 <svg id="drawing-layer"></svg>
-                <svg id="paths-layer"></svg>
-                <div id="players-layer"><div id="board-area"></div></div>
+                <div id="players-layer"><div id="board-area"><svg id="paths-layer"></svg></div></div>
                 <div id="position-display" class="position-display hidden">X: 0 - Y: 0</div>
 
                 <!-- Zoom controls (top-right of board container) -->

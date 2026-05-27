@@ -243,9 +243,12 @@ const Board = {
         };
         setLayer(AppState.canvas, width, height, offsetX, offsetY);
 
-        // Update paths layer size and position
+        // Update paths layer size and position.  paths-layer lives INSIDE
+        // players-layer (so it shares its rotated stacking context), so it sits
+        // at (0, 0) relative to its parent — the parent already carries the
+        // offsetX/offsetY centering.
         const pathsLayer = document.getElementById('paths-layer');
-        setLayer(pathsLayer, width, height, offsetX, offsetY);
+        setLayer(pathsLayer, width, height, 0, 0);
 
         // Update drawing layer size and position
         const drawingLayer = document.getElementById('drawing-layer');
