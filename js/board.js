@@ -225,32 +225,40 @@ const Board = {
         // To center the canvas in the container, we position it so its center aligns with container center
         const offsetX = (rect.width - width) / 2;
         const offsetY = (rect.height - height) / 2;
-        AppState.canvas.style.left = offsetX + 'px';
-        AppState.canvas.style.top = offsetY + 'px';
+        // Stash the layout offset on each layer so updateBoardVisualRotation() can
+        // re-apply pan without losing track of the centering offset.
+        const setLayer = (layer, w, h, ox, oy) => {
+            if (!layer) return;
+            layer.dataset.baseLeft = String(ox);
+            layer.dataset.baseTop = String(oy);
+            if (layer.tagName.toLowerCase() === 'svg') {
+                layer.setAttribute('width', w);
+                layer.setAttribute('height', h);
+                layer.setAttribute('viewBox', `0 0 ${w} ${h}`);
+            }
+            layer.style.width = w + 'px';
+            layer.style.height = h + 'px';
+            layer.style.left = ox + 'px';
+            layer.style.top = oy + 'px';
+        };
+        setLayer(AppState.canvas, width, height, offsetX, offsetY);
 
-        // Update paths layer size and position
+        // Update paths layer size and position.  paths-layer lives INSIDE
+        // players-layer (so it shares its rotated stacking context), so it sits
+        // at (0, 0) relative to its parent — the parent already carries the
+        // offsetX/offsetY centering.
         const pathsLayer = document.getElementById('paths-layer');
-        pathsLayer.setAttribute('width', width);
-        pathsLayer.setAttribute('height', height);
-        pathsLayer.setAttribute('viewBox', `0 0 ${width} ${height}`);
-        pathsLayer.style.width = width + 'px';
-        pathsLayer.style.height = height + 'px';
-        pathsLayer.style.left = offsetX + 'px';
-        pathsLayer.style.top = offsetY + 'px';
+        setLayer(pathsLayer, width, height, 0, 0);
 
         // Update drawing layer size and position
         const drawingLayer = document.getElementById('drawing-layer');
-        drawingLayer.setAttribute('width', width);
-        drawingLayer.setAttribute('height', height);
-        drawingLayer.setAttribute('viewBox', `0 0 ${width} ${height}`);
-        drawingLayer.style.width = width + 'px';
-        drawingLayer.style.height = height + 'px';
-        drawingLayer.style.left = offsetX + 'px';
-        drawingLayer.style.top = offsetY + 'px';
+        setLayer(drawingLayer, width, height, offsetX, offsetY);
 
         // Update court SVG size and position
         const courtSvg = document.getElementById('court-svg');
         if (courtSvg) {
+            courtSvg.dataset.baseLeft = String(offsetX);
+            courtSvg.dataset.baseTop = String(offsetY);
             courtSvg.style.width = width + 'px';
             courtSvg.style.height = height + 'px';
             courtSvg.style.left = offsetX + 'px';
@@ -259,10 +267,7 @@ const Board = {
 
         // Players layer should be exactly the same size and position as board-canvas
         const playersLayer = document.getElementById('players-layer');
-        playersLayer.style.width = width + 'px';
-        playersLayer.style.height = height + 'px';
-        playersLayer.style.left = offsetX + 'px';
-        playersLayer.style.top = offsetY + 'px';
+        setLayer(playersLayer, width, height, offsetX, offsetY);
 
         // board-area is at (0,0) inside players-layer, same size as players-layer
         const boardArea = document.getElementById('board-area');
