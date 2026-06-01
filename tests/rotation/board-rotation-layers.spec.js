@@ -40,14 +40,15 @@ test.describe('Board layers rotation', () => {
             };
         });
 
-        // All layers should have rotation transform at 90°
+        // All transformed layers should have rotation transform at 90°
         expect(transforms.courtSvg).toContain('rotate(90deg)');
         expect(transforms.boardCanvas).toContain('rotate(90deg)');
-        expect(transforms.pathsLayer).toContain('rotate(90deg)');
         expect(transforms.drawingLayer).toContain('rotate(90deg)');
         expect(transforms.playersLayer).toContain('rotate(90deg)');
 
-        // board-area should NOT have rotation (it's inside players-layer which is rotated)
+        // paths-layer and board-area are nested inside players-layer, so they
+        // inherit the rotation and must NOT have their own transform.
+        expect(transforms.pathsLayer || '').not.toContain('rotate');
         expect(transforms.boardArea || '').not.toContain('rotate');
     });
 
@@ -74,14 +75,15 @@ test.describe('Board layers rotation', () => {
             };
         });
 
-        // All layers should have rotation transform at 180°
+        // All transformed layers should have rotation transform at 180°
         expect(transforms.courtSvg).toContain('rotate(180deg)');
         expect(transforms.boardCanvas).toContain('rotate(180deg)');
-        expect(transforms.pathsLayer).toContain('rotate(180deg)');
         expect(transforms.drawingLayer).toContain('rotate(180deg)');
         expect(transforms.playersLayer).toContain('rotate(180deg)');
 
-        // board-area should NOT have rotation (it's inside players-layer which is rotated)
+        // paths-layer and board-area are nested inside players-layer, so they
+        // inherit the rotation and must NOT have their own transform.
+        expect(transforms.pathsLayer || '').not.toContain('rotate');
         expect(transforms.boardArea || '').not.toContain('rotate');
     });
 

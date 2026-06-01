@@ -233,7 +233,6 @@ const Utils = {
      * @param {number} y - Desired top position in client pixels.
      */
     positionContextMenu(menu, x, y) {
-        menu.style.display = 'block';
         menu.style.left = '0px';
         menu.style.top = '0px';
 

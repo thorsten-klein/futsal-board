@@ -164,15 +164,16 @@ test.describe('Board rotation visual fit', () => {
             };
         });
 
-        // All layers should have rotation and scale
+        // All transformed layers should have rotation and scale
         expect(transforms.courtSvg).toContain('rotate(90deg)');
         expect(transforms.courtSvg).toContain('scale');
         expect(transforms.canvas).toContain('rotate(90deg)');
-        expect(transforms.pathsLayer).toContain('rotate(90deg)');
         expect(transforms.drawingLayer).toContain('rotate(90deg)');
         expect(transforms.playersLayer).toContain('rotate(90deg)');
 
-        // board-area should NOT be rotated (it's inside players-layer)
+        // paths-layer and board-area are nested inside players-layer, so they
+        // inherit the rotation and must NOT have their own transform.
+        expect(transforms.pathsLayer || '').not.toContain('rotate');
         expect(transforms.boardArea || '').not.toContain('rotate');
     });
 });

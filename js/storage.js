@@ -490,6 +490,18 @@ const Storage = {
 
         item.appendChild(name);
 
+        // Add-child button (aligned right, visible on hover)
+        const addChildBtn = document.createElement('div');
+        addChildBtn.className = 'board-add-child-btn';
+        addChildBtn.title = 'Add child board';
+        addChildBtn.dataset.boardAddChild = board.id;
+        addChildBtn.textContent = '+';
+        addChildBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.addChildBoard(board.id);
+        });
+        item.appendChild(addChildBtn);
+
         // Click to switch board
         item.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -711,9 +723,8 @@ const Storage = {
         this.boardMenuOpenTime = Date.now(); // Track when menu was opened
         const menu = document.getElementById('board-context-menu');
 
-        menu.style.left = x + 'px';
-        menu.style.top = y + 'px';
         menu.classList.remove('hidden');
+        Utils.positionContextMenu(menu, x, y);
 
         // Remove old listeners and add new one
         const newMenu = menu.cloneNode(true);
