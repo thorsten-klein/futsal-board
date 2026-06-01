@@ -857,11 +857,19 @@ body {
 
 #paths-layer {
     position: absolute;
-    /* paths-layer is a child of players-layer (shares its rotated stacking
+    /* paths-layer is a child of board-area (shares its rotated stacking
        context). z-index 45 sits ABOVE shapes (11-15) and elements (30-37) but
        BELOW players (50), so path lines render at the same logical level as
        their source entity without obscuring the players themselves. */
     z-index: 45;
+    pointer-events: none;
+}
+
+/* #board-area > * { pointer-events: auto } has specificity 101 and would
+   override the pointer-events: none above (specificity 100), causing paths-layer
+   to intercept clicks meant for balls, plates, elements and shapes.
+   This rule raises specificity to 200 to win that cascade. */
+#board-area #paths-layer {
     pointer-events: none;
 }
 
