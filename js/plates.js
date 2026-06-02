@@ -375,6 +375,7 @@ const Plates = {
 
         // Position menu and ensure it stays within viewport
         menuCopy.classList.remove('hidden');
+        menuCopy.style.display = '';
 
         Utils.positionContextMenu(menuCopy, x, y);
 

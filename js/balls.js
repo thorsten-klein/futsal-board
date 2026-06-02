@@ -371,6 +371,7 @@ const Balls = {
         menu.parentNode.replaceChild(menuCopy, menu);
 
         menuCopy.classList.remove('hidden');
+        menuCopy.style.display = '';
 
         // Hide lock menu item for balls (in the copy)
         const lockItem = menuCopy.querySelector('[data-action="lock"]');
