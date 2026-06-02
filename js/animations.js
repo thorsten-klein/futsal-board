@@ -811,16 +811,20 @@ const Animations = {
             return;
         }
 
-        // Build single-frame animation chain
-        this.buildAnimationChain([parentBoard, currentBoard]);
-
         // If animation was completed (pausedProgress >= 1), start fresh
         if (this.pausedProgress >= 1) {
             this.pausedProgress = 0;
         }
 
-        // Save current positions as end positions (only if starting fresh)
-        if (this.pausedProgress === 0) {
+        // Only rebuild the chain when starting fresh. On resume the current
+        // player/ball positions are at the paused mid-point, so rebuilding
+        // would overwrite the original end positions with the mid-point and
+        // make the player snap to (and stop at) the wrong place.
+        const resuming = this.pausedProgress > 0
+            && Object.keys(this.animationChainPlayers).length > 0
+            && this.animationChainBoardId === AppState.currentBoardId;
+        if (!resuming) {
+            this.buildAnimationChain([parentBoard, currentBoard]);
             AppState.saveCurrentPositions();
         }
 
@@ -862,6 +866,11 @@ const Animations = {
             this.startTime = performance.now();
         }
 
+        // Deselect any selected player before animation starts.
+        AppState.selectedPlayer = null;
+        document.querySelectorAll('.player.selected').forEach(p => p.classList.remove('selected'));
+        Players.updateRotationHandle();
+
         AppState.isAnimating = true;
 
         this.updatePlayPauseButton(true);
@@ -889,16 +898,20 @@ const Animations = {
             return;
         }
 
-        // Build the full animation chain with positions from each board
-        this.buildAnimationChain(boardChain);
-
         // If animation was completed (pausedProgress >= 1), start fresh
         if (this.pausedProgress >= 1) {
             this.pausedProgress = 0;
         }
 
-        // Save current positions as end positions (only if starting fresh)
-        if (this.pausedProgress === 0) {
+        // Only rebuild the chain when starting fresh. On resume the current
+        // player/ball positions are at the paused mid-point, so rebuilding
+        // would overwrite the original end positions with the mid-point and
+        // make the player snap to (and stop at) the wrong place.
+        const resuming = this.pausedProgress > 0
+            && Object.keys(this.animationChainPlayers).length > 0
+            && this.animationChainBoardId === AppState.currentBoardId;
+        if (!resuming) {
+            this.buildAnimationChain(boardChain);
             AppState.saveCurrentPositions();
         }
 
@@ -942,6 +955,11 @@ const Animations = {
 
             this.startTime = performance.now();
         }
+
+        // Deselect any selected player before animation starts.
+        AppState.selectedPlayer = null;
+        document.querySelectorAll('.player.selected').forEach(p => p.classList.remove('selected'));
+        Players.updateRotationHandle();
 
         AppState.isAnimating = true;
 

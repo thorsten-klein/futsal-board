@@ -1179,7 +1179,19 @@ const AppState = {
             const newBoard = structuredClone(board);
             newBoard.id = `board-${this.nextBoardId++}`;
             newBoard.name = customName || `${board.name} (Copy)`;
+            newBoard.children = []; // the clone's own children are not duplicated
             this.boards.push(newBoard);
+
+            // Register the duplicate in the parent's children array so it is
+            // visible in the board tree (was missing for child boards).
+            if (newBoard.parentId) {
+                const parent = this.boards.find(b => b.id === newBoard.parentId);
+                if (parent) {
+                    if (!parent.children) parent.children = [];
+                    parent.children.push(newBoard.id);
+                }
+            }
+
             this.saveToLocalStorage();
             return newBoard.id;
         }

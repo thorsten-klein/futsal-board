@@ -2215,6 +2215,32 @@ body.touch-mode.show-touch-debug .touch-overlay {
     white-space: nowrap;
 }
 
+.board-add-child-btn {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #7f8c8d;
+    border-radius: 4px;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.board-item:hover .board-add-child-btn {
+    opacity: 1;
+}
+
+.board-add-child-btn:hover {
+    background: #e8f4fd;
+    color: #2980b9;
+}
+
 .board-tree-children {
     list-style: none;
     padding-left: 1.5rem;
