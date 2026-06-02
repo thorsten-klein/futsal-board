@@ -1,17 +1,54 @@
 /**
- * Regression test: starting animation while a player is selected must
- * deselect that player first.
+ * Regression tests: starting animation (play or playFrame) must deselect every
+ * type of selectable object — player, ball, element, plate, shape.
  *
- * Bug: play() and playFrame() in animations.js set AppState.isAnimating = true
- * without clearing AppState.selectedPlayer, so the player remained selected
- * (highlighted, rotation handle visible) during playback.
+ * Bug: play() and playFrame() only cleared selectedPlayer; all other selected-*
+ * state fields were left non-null, keeping highlights visible during playback.
  */
 import { test, expect } from './test-config.js';
 import { goto } from './helpers.js';
 
-/** Create a child board programmatically and switch to it. */
-async function createChildBoard(page) {
-    return page.evaluate(() => {
+/** Assert all selected-* state fields are null and no selection CSS class remains. */
+async function assertNothingSelected(page) {
+    const state = await page.evaluate(() => ({
+        selectedPlayer:  AppState.selectedPlayer,
+        selectedBall:    AppState.selectedBall,
+        selectedElement: AppState.selectedElement,
+        selectedPlate:   AppState.selectedPlate,
+        selectedShape:   AppState.selectedShape,
+        selectedPath:    AppState.selectedPath,
+        selectedGhost:   AppState.selectedGhost,
+    }));
+    expect(state.selectedPlayer,  'selectedPlayer').toBeNull();
+    expect(state.selectedBall,    'selectedBall').toBeNull();
+    expect(state.selectedElement, 'selectedElement').toBeNull();
+    expect(state.selectedPlate,   'selectedPlate').toBeNull();
+    expect(state.selectedShape,   'selectedShape').toBeNull();
+    expect(state.selectedPath,    'selectedPath').toBeNull();
+    expect(state.selectedGhost,   'selectedGhost').toBeNull();
+
+    // No selection highlight CSS classes should remain in the DOM.
+    for (const cls of ['.player.selected', '.ball-selected', '.element-selected',
+                        '.plate-selected', '.shape-selected']) {
+        const count = await page.locator(cls).count();
+        expect(count, `DOM elements matching "${cls}"`).toBe(0);
+    }
+}
+
+/** Add objects on the root board, create a child board, switch to it. */
+async function setup(page) {
+    await goto(page);
+    await page.evaluate(() => {
+        AppState.addPlayer('team-1', 2250, 1250);
+        AppState.addBall('#ffffff', 2000, 1200);
+        AppState.addElement('cone', 1000, 1000);
+        AppState.addPlate('#ff0000', 2000, 1500);
+        AppState.shapes.push({
+            id: 'shape-test-1', type: 'rectangle',
+            x: 1500, y: 1000, width: 200, height: 100,
+            rotation: 0, color: '#ff6b35', strokeWidth: 3,
+            visible: true, inherited: false
+        });
         AppState.saveCurrentBoard();
         const childId = AppState.createChildBoard(AppState.currentBoardId);
         AppState.loadBoard(childId);
@@ -20,77 +57,116 @@ async function createChildBoard(page) {
         Elements.render();
         Plates.render();
         Shapes.render();
-        return childId;
     });
+    await page.waitForTimeout(100);
 }
 
-/** Add a player via the sidebar template click. */
-async function addPlayer(page) {
-    const before = await page.locator('[data-player-id]').count();
-    await page.locator('.team-player-template').first().click();
-    await expect(page.locator('[data-player-id]')).toHaveCount(before + 1, { timeout: 3000 });
-    return page.locator('[data-player-id]').nth(before);
-}
+// ─── play() tests ───────────────────────────────────────────────────────────
 
-test.describe('animation deselects selected player', () => {
-    test.beforeEach(async ({ page }) => {
-        await goto(page);
-    });
-
-    test('play() clears selectedPlayer before animating', async ({ page }) => {
-        // Add a player on the root board, then create a child board.
-        await addPlayer(page);
-        await createChildBoard(page);
-        await page.waitForTimeout(150);
-
-        // Select the player by clicking it.
-        const playerEl = page.locator('[data-player-id]').first();
-        await playerEl.click();
-        await page.waitForTimeout(100);
-
-        // Confirm the player is selected in state and has the CSS class.
-        const selectedBefore = await page.evaluate(() => AppState.selectedPlayer?.id ?? null);
-        expect(selectedBefore).not.toBeNull();
-        await expect(playerEl).toHaveClass(/selected/);
-
-        // Start the full-chain animation.
+test.describe('play() deselects every object type', () => {
+    test('play() deselects a selected player', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => { AppState.selectedPlayer = AppState.players[0]; Players.render(); });
         await page.evaluate(() => Animations.play());
         await page.waitForTimeout(50);
-
-        // selectedPlayer must be null immediately after play() starts.
-        const selectedAfter = await page.evaluate(() => AppState.selectedPlayer);
-        expect(selectedAfter).toBeNull();
-
-        // The .selected CSS class must also be gone.
-        await expect(playerEl).not.toHaveClass(/selected/);
-
-        // Clean up.
+        await assertNothingSelected(page);
         await page.evaluate(() => Animations.pause());
     });
 
-    test('playFrame() clears selectedPlayer before animating', async ({ page }) => {
-        // Add a player on the root board, then create a child board.
-        await addPlayer(page);
-        await createChildBoard(page);
-        await page.waitForTimeout(150);
+    test('play() deselects a selected ball', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => { AppState.selectedBall = AppState.balls[0]; Balls.render(); });
+        await page.evaluate(() => Animations.play());
+        await page.waitForTimeout(50);
+        await assertNothingSelected(page);
+        await page.evaluate(() => Animations.pause());
+    });
 
-        // Select the player.
-        const playerEl = page.locator('[data-player-id]').first();
-        await playerEl.click();
-        await page.waitForTimeout(100);
+    test('play() deselects a selected element', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => {
+            AppState.selectedElement = AppState.elements.find(e => e.type === 'cone');
+            Elements.render();
+        });
+        await page.evaluate(() => Animations.play());
+        await page.waitForTimeout(50);
+        await assertNothingSelected(page);
+        await page.evaluate(() => Animations.pause());
+    });
 
-        const selectedBefore = await page.evaluate(() => AppState.selectedPlayer?.id ?? null);
-        expect(selectedBefore).not.toBeNull();
+    test('play() deselects a selected plate', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => { AppState.selectedPlate = AppState.plates[0]; Plates.render(); });
+        await page.evaluate(() => Animations.play());
+        await page.waitForTimeout(50);
+        await assertNothingSelected(page);
+        await page.evaluate(() => Animations.pause());
+    });
 
-        // Start the single-frame animation.
+    test('play() deselects a selected shape', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => {
+            AppState.selectedShape = AppState.shapes.find(s => s.id === 'shape-test-1');
+            Shapes.render();
+        });
+        await page.evaluate(() => Animations.play());
+        await page.waitForTimeout(50);
+        await assertNothingSelected(page);
+        await page.evaluate(() => Animations.pause());
+    });
+});
+
+// ─── playFrame() tests ──────────────────────────────────────────────────────
+
+test.describe('playFrame() deselects every object type', () => {
+    test('playFrame() deselects a selected player', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => { AppState.selectedPlayer = AppState.players[0]; Players.render(); });
         await page.evaluate(() => Animations.playFrame());
         await page.waitForTimeout(50);
+        await assertNothingSelected(page);
+        await page.evaluate(() => Animations.pause());
+    });
 
-        const selectedAfter = await page.evaluate(() => AppState.selectedPlayer);
-        expect(selectedAfter).toBeNull();
+    test('playFrame() deselects a selected ball', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => { AppState.selectedBall = AppState.balls[0]; Balls.render(); });
+        await page.evaluate(() => Animations.playFrame());
+        await page.waitForTimeout(50);
+        await assertNothingSelected(page);
+        await page.evaluate(() => Animations.pause());
+    });
 
-        await expect(playerEl).not.toHaveClass(/selected/);
+    test('playFrame() deselects a selected element', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => {
+            AppState.selectedElement = AppState.elements.find(e => e.type === 'cone');
+            Elements.render();
+        });
+        await page.evaluate(() => Animations.playFrame());
+        await page.waitForTimeout(50);
+        await assertNothingSelected(page);
+        await page.evaluate(() => Animations.pause());
+    });
 
+    test('playFrame() deselects a selected plate', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => { AppState.selectedPlate = AppState.plates[0]; Plates.render(); });
+        await page.evaluate(() => Animations.playFrame());
+        await page.waitForTimeout(50);
+        await assertNothingSelected(page);
+        await page.evaluate(() => Animations.pause());
+    });
+
+    test('playFrame() deselects a selected shape', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => {
+            AppState.selectedShape = AppState.shapes.find(s => s.id === 'shape-test-1');
+            Shapes.render();
+        });
+        await page.evaluate(() => Animations.playFrame());
+        await page.waitForTimeout(50);
+        await assertNothingSelected(page);
         await page.evaluate(() => Animations.pause());
     });
 });

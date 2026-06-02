@@ -1182,6 +1182,15 @@ body.touch-mode.show-touch-debug .touch-overlay {
     display: none;
 }
 
+#animation-board-overlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 250;
+    cursor: default;
+    background: transparent;
+}
+
 .board-zoom-controls {
     position: absolute;
     top: 12px;
@@ -3020,6 +3029,9 @@ body.touch-mode.show-touch-debug .touch-overlay {
                         <option value="2.0">2.0x</option>
                     </select>
                 </div>
+
+                <!-- Transparent overlay that blocks object selection while animation is active or paused mid-way -->
+                <div id="animation-board-overlay"></div>
 
                 <!-- Animation Player Overlay -->
                 <div id="animation-player-overlay" class="animation-player-overlay">
