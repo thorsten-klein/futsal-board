@@ -64,10 +64,23 @@ const Animations = {
         document.getElementById('btn-stop').addEventListener('click', () => this.goToFrameEnd());
 
         // Collapse / expand animation player
-        document.getElementById('btn-collapse-player').addEventListener('click', () => {
+        // Restore persisted collapse state (inline <head> script already applied
+        // the class before first paint; JS now takes ownership).
+        const overlayEl = document.getElementById('animation-player-overlay');
+        const collapseBtn = document.getElementById('btn-collapse-player');
+        document.documentElement.classList.remove('animation-player-collapsed');
+        if (localStorage.getItem('animationPlayerCollapsed') === 'true') {
+            overlayEl.classList.add('animation-collapsed');
+            collapseBtn.querySelector('.collapse-icon').style.display = 'none';
+            collapseBtn.querySelector('.expand-icon').style.display = '';
+            collapseBtn.title = 'Expand player';
+        }
+
+        collapseBtn.addEventListener('click', () => {
             const overlay = document.getElementById('animation-player-overlay');
             const btn = document.getElementById('btn-collapse-player');
             const collapsed = overlay.classList.toggle('animation-collapsed');
+            localStorage.setItem('animationPlayerCollapsed', collapsed);
             btn.querySelector('.collapse-icon').style.display = collapsed ? 'none' : '';
             btn.querySelector('.expand-icon').style.display = collapsed ? '' : 'none';
             btn.title = collapsed ? 'Expand player' : 'Collapse player';
@@ -424,7 +437,9 @@ const Animations = {
         let dragOffsetX = 0;
         let dragOffsetY = 0;
 
-        // Load saved position from localStorage
+        // Load saved position from localStorage.
+        // The inline <head> script hid the overlay via html.animation-overlay-positioning
+        // to prevent a flash at the wrong position; remove that class now after applying.
         const savedPosition = localStorage.getItem('animationOverlayPosition');
         if (savedPosition) {
             try {
@@ -436,6 +451,7 @@ const Animations = {
                 console.error('Failed to load overlay position:', e);
             }
         }
+        document.documentElement.classList.remove('animation-overlay-positioning');
 
         // Helper to check if target is draggable area (drag handle only)
         const isDraggableArea = (target) => {

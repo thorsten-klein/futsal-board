@@ -1093,10 +1093,20 @@ const App = {
         const toggleBtn = document.getElementById('btn-toggle-sidebar');
         const toolbar = document.querySelector('.toolbar');
         const resizeIcon = document.querySelector('.sidebar-resize-icon');
-        let sidebarVisible = true;
+
+        // Restore persisted sidebar visibility.
+        // The inline <head> script already hid the toolbar via html.sidebar-hidden;
+        // now JS takes over and removes that class.
+        document.documentElement.classList.remove('sidebar-hidden');
+        let sidebarVisible = localStorage.getItem('sidebarVisible') !== 'false';
+        if (!sidebarVisible) {
+            toolbar.classList.add('hidden');
+            if (resizeIcon) resizeIcon.style.display = 'none';
+        }
 
         toggleBtn.addEventListener('click', () => {
             sidebarVisible = !sidebarVisible;
+            localStorage.setItem('sidebarVisible', sidebarVisible);
             if (sidebarVisible) {
                 toolbar.classList.remove('hidden');
                 if (resizeIcon) resizeIcon.style.display = 'flex';

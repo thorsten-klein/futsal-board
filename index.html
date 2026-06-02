@@ -170,7 +170,8 @@ body {
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
-.board-breadcrumb.hidden {
+.board-breadcrumb.hidden,
+html.breadcrumb-hidden .board-breadcrumb {
     display: none;
 }
 
@@ -1387,6 +1388,10 @@ body.touch-mode.show-touch-debug .touch-overlay {
     position: relative;
 }
 
+html.sidebar-hidden .toolbar {
+    display: none;
+}
+
 .toolbar.hidden {
     display: none;
 }
@@ -2292,6 +2297,14 @@ body.touch-mode.show-touch-debug .touch-overlay {
     display: none;
 }
 
+html.animation-player-collapsed #animation-player-overlay .animation-collapsible {
+    display: none;
+}
+
+html.animation-overlay-positioning #animation-player-overlay {
+    display: none;
+}
+
 /* Animation Player Overlay */
 .animation-player-overlay {
     position: absolute;
@@ -2447,6 +2460,20 @@ body.touch-mode.show-touch-debug .touch-overlay {
     opacity: 1;
 }
     </style>
+    <!-- Runs synchronously before first paint to suppress flash-of-visible-content -->
+    <script>
+        if (localStorage.getItem('sidebarVisible') === 'false') document.documentElement.classList.add('sidebar-hidden');
+        if (localStorage.getItem('animationPlayerCollapsed') === 'true') document.documentElement.classList.add('animation-player-collapsed');
+        // Hide the animation overlay until JS has applied the saved position (prevents jump).
+        if (localStorage.getItem('animationOverlayPosition')) document.documentElement.classList.add('animation-overlay-positioning');
+        try {
+            var _s = localStorage.getItem('futsalBoard');
+            if (_s) {
+                var _d = JSON.parse(_s);
+                if (_d.showBoardBreadcrumb === false) document.documentElement.classList.add('breadcrumb-hidden');
+            }
+        } catch(e) {}
+    </script>
 </head>
 <body>
     <noscript>
@@ -2528,7 +2555,7 @@ body.touch-mode.show-touch-debug .touch-overlay {
         </header>
 
         <!-- Breadcrumb navigation bar -->
-        <div id="board-breadcrumb" class="board-breadcrumb hidden"></div>
+        <div id="board-breadcrumb" class="board-breadcrumb"></div>
 
         <!-- Main Content -->
         <div class="main-content">
