@@ -13,7 +13,8 @@ export default defineConfig({
     // localStorage / sessionStorage / cookies are not shared. No test file uses
     // beforeAll or describe.serial, so file-internal ordering is irrelevant too.
     fullyParallel: true,
-    workers: process.env.CI ? 2 : undefined,  // locally Playwright auto-picks ~50% of cores
+    // CI shall use all cores, locally use ~80% of available cores
+    workers: process.env.CI ? '100%' : '80%',
     retries: 0,
     reporter: 'list',
     use: {
