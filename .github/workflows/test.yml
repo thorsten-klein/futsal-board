@@ -5,6 +5,12 @@ on:
     branches: [develop]
   pull_request:
 
+# Cancel any in-progress run for the same branch/PR when a new commit is pushed.
+# Different branches and PRs still run independently.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -29,6 +35,18 @@ jobs:
 
       - name: Run tests
         run: ./test.sh --shard=${{ matrix.shard }}/4
+
+      - name: Diagnose coverage output
+        if: always()
+        run: |
+          echo "=== ls -la (repo root) ==="
+          ls -la
+          echo
+          echo "=== ls -la .nyc_output/ ==="
+          ls -la .nyc_output/ 2>&1 || echo "(.nyc_output directory is missing)"
+          echo
+          echo "=== JSON file count in .nyc_output/ ==="
+          find .nyc_output -name '*.json' 2>/dev/null | wc -l
 
       - name: Upload coverage data
         if: always()
