@@ -30,6 +30,9 @@ const Breadcrumb = {
         const bar = document.getElementById('board-breadcrumb');
         if (!bar) return;
 
+        // Hand off from the inline <head> class to the runtime .hidden class.
+        document.documentElement.classList.remove('breadcrumb-hidden');
+
         if (!AppState.showBoardBreadcrumb) {
             bar.classList.add('hidden');
             return;

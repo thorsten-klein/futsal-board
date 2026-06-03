@@ -64,10 +64,23 @@ const Animations = {
         document.getElementById('btn-stop').addEventListener('click', () => this.goToFrameEnd());
 
         // Collapse / expand animation player
-        document.getElementById('btn-collapse-player').addEventListener('click', () => {
+        // Restore persisted collapse state (inline <head> script already applied
+        // the class before first paint; JS now takes ownership).
+        const overlayEl = document.getElementById('animation-player-overlay');
+        const collapseBtn = document.getElementById('btn-collapse-player');
+        document.documentElement.classList.remove('animation-player-collapsed');
+        if (localStorage.getItem('animationPlayerCollapsed') === 'true') {
+            overlayEl.classList.add('animation-collapsed');
+            collapseBtn.querySelector('.collapse-icon').style.display = 'none';
+            collapseBtn.querySelector('.expand-icon').style.display = '';
+            collapseBtn.title = 'Expand player';
+        }
+
+        collapseBtn.addEventListener('click', () => {
             const overlay = document.getElementById('animation-player-overlay');
             const btn = document.getElementById('btn-collapse-player');
             const collapsed = overlay.classList.toggle('animation-collapsed');
+            localStorage.setItem('animationPlayerCollapsed', collapsed);
             btn.querySelector('.collapse-icon').style.display = collapsed ? 'none' : '';
             btn.querySelector('.expand-icon').style.display = collapsed ? '' : 'none';
             btn.title = collapsed ? 'Expand player' : 'Collapse player';
@@ -424,7 +437,9 @@ const Animations = {
         let dragOffsetX = 0;
         let dragOffsetY = 0;
 
-        // Load saved position from localStorage
+        // Load saved position from localStorage.
+        // The inline <head> script hid the overlay via html.animation-overlay-positioning
+        // to prevent a flash at the wrong position; remove that class now after applying.
         const savedPosition = localStorage.getItem('animationOverlayPosition');
         if (savedPosition) {
             try {
@@ -436,6 +451,7 @@ const Animations = {
                 console.error('Failed to load overlay position:', e);
             }
         }
+        document.documentElement.classList.remove('animation-overlay-positioning');
 
         // Helper to check if target is draggable area (drag handle only)
         const isDraggableArea = (target) => {
@@ -866,12 +882,25 @@ const Animations = {
             this.startTime = performance.now();
         }
 
-        // Deselect any selected player before animation starts.
-        AppState.selectedPlayer = null;
+        // Deselect every selectable object before animation starts.
+        AppState.selectedPlayer  = null;
+        AppState.selectedBall    = null;
+        AppState.selectedElement = null;
+        AppState.selectedPlate   = null;
+        AppState.selectedShape   = null;
+        AppState.selectedPath    = null;
+        AppState.selectedGhost   = null;
+        AppState.hidePositionDisplay();
         document.querySelectorAll('.player.selected').forEach(p => p.classList.remove('selected'));
+        document.querySelectorAll('.ball-selected').forEach(el => el.classList.remove('ball-selected'));
+        document.querySelectorAll('.element-selected').forEach(el => el.classList.remove('element-selected'));
+        document.querySelectorAll('.plate-selected').forEach(el => el.classList.remove('plate-selected'));
+        document.querySelectorAll('.shape-selected').forEach(el => el.classList.remove('shape-selected'));
         Players.updateRotationHandle();
+        Elements.updateRotationHandle();
 
         AppState.isAnimating = true;
+        this._showBoardOverlay();
 
         this.updatePlayPauseButton(true);
 
@@ -956,12 +985,25 @@ const Animations = {
             this.startTime = performance.now();
         }
 
-        // Deselect any selected player before animation starts.
-        AppState.selectedPlayer = null;
+        // Deselect every selectable object before animation starts.
+        AppState.selectedPlayer  = null;
+        AppState.selectedBall    = null;
+        AppState.selectedElement = null;
+        AppState.selectedPlate   = null;
+        AppState.selectedShape   = null;
+        AppState.selectedPath    = null;
+        AppState.selectedGhost   = null;
+        AppState.hidePositionDisplay();
         document.querySelectorAll('.player.selected').forEach(p => p.classList.remove('selected'));
+        document.querySelectorAll('.ball-selected').forEach(el => el.classList.remove('ball-selected'));
+        document.querySelectorAll('.element-selected').forEach(el => el.classList.remove('element-selected'));
+        document.querySelectorAll('.plate-selected').forEach(el => el.classList.remove('plate-selected'));
+        document.querySelectorAll('.shape-selected').forEach(el => el.classList.remove('shape-selected'));
         Players.updateRotationHandle();
+        Elements.updateRotationHandle();
 
         AppState.isAnimating = true;
+        this._showBoardOverlay();
 
         this.updatePlayPauseButton(true);
 
@@ -1001,6 +1043,7 @@ const Animations = {
 
     // Go to frame end - pause and restore to end positions
     goToFrameEnd() {
+        this._hideBoardOverlay();
         this.pause();
 
         // Go to end of animation
@@ -1029,6 +1072,7 @@ const Animations = {
         // Check if we had an animation chain before (to know if we should update progress bar)
         const hadAnimationChain = Object.keys(this.animationChainPlayers).length > 0;
 
+        this._hideBoardOverlay();
         this.pause();
 
         // Don't animate if not on a child board
@@ -1094,6 +1138,29 @@ const Animations = {
     // Reset animation (backwards compatibility - calls stop)
     reset() {
         this.stop();
+    },
+
+    // Show the transparent board overlay that blocks object interaction during play/pause.
+    _showBoardOverlay() {
+        const overlay = document.getElementById('animation-board-overlay');
+        if (!overlay) return;
+        overlay.style.display = 'block';
+        // Single-fire: one click resets to frame end and removes the overlay.
+        overlay._clickHandler = () => {
+            this.goToFrameEnd();
+        };
+        overlay.addEventListener('click', overlay._clickHandler);
+    },
+
+    // Hide the board overlay and remove its click listener.
+    _hideBoardOverlay() {
+        const overlay = document.getElementById('animation-board-overlay');
+        if (!overlay) return;
+        overlay.style.display = 'none';
+        if (overlay._clickHandler) {
+            overlay.removeEventListener('click', overlay._clickHandler);
+            overlay._clickHandler = null;
+        }
     },
 
     // Update the scrubber / progress bar fill width and dot position (0–1)

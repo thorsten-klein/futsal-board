@@ -222,6 +222,10 @@ test.describe('Context menu off-screen bug', () => {
         // Test 1: Position menu near bottom-right edge
         let menuBox = await page.evaluate(({ vw, vh }) => {
             const menu = document.getElementById('element-context-menu');
+            // Make the menu visible first — positionContextMenu measures the rendered
+            // size, which is 0 on a display:none element.
+            menu.classList.remove('hidden');
+            menu.style.display = '';
             // Try to position at bottom-right (would overflow)
             Utils.positionContextMenu(menu, vw - 50, vh - 50);
             const rect = menu.getBoundingClientRect();
@@ -242,6 +246,8 @@ test.describe('Context menu off-screen bug', () => {
         // Test 2: Position menu near top-left edge
         menuBox = await page.evaluate(() => {
             const menu = document.getElementById('element-context-menu');
+            menu.classList.remove('hidden');
+            menu.style.display = '';
             // Try to position at top-left (would overflow left/top)
             Utils.positionContextMenu(menu, -50, -50);
             const rect = menu.getBoundingClientRect();
@@ -260,6 +266,8 @@ test.describe('Context menu off-screen bug', () => {
         // Test 3: Position menu, then reposition (simulates opening menu on element 1, then element 2)
         const positions = await page.evaluate(({ vw, vh }) => {
             const menu = document.getElementById('element-context-menu');
+            menu.classList.remove('hidden');
+            menu.style.display = '';
             const results = [];
 
             // First position - near bottom

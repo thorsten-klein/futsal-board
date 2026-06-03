@@ -1621,6 +1621,7 @@ const Shapes = {
 
         // Remove hidden class first (but don't position yet - need to add items first)
         menuCopy.classList.remove('hidden');
+        menuCopy.style.display = '';
 
         // Show lock menu item and set text based on current state
         const lockItem = menuCopy.querySelector('[data-action="lock"]');

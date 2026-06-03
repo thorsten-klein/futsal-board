@@ -23,7 +23,8 @@ export default defineConfig({
     projects: [
         {
             name: 'chromium',
-            use: { ...devices['Desktop Chrome'], channel: 'chrome' } // use system Chrome (no download needed)
+            // Use system Chrome locally if available, fall back to Playwright's bundled Chromium on CI.
+            use: { ...devices['Desktop Chrome'], channel: process.env.CI ? undefined : 'chrome' }
         },
         // {
         //     name: 'firefox',

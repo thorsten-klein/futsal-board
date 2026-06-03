@@ -766,6 +766,7 @@ const Elements = {
         const freshMenu = document.getElementById('element-context-menu');
 
         freshMenu.classList.remove('hidden');
+        freshMenu.style.display = '';
 
         Utils.positionContextMenu(freshMenu, x, y);
     },
