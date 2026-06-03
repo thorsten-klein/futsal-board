@@ -883,21 +883,7 @@ const Animations = {
         }
 
         // Deselect every selectable object before animation starts.
-        AppState.selectedPlayer  = null;
-        AppState.selectedBall    = null;
-        AppState.selectedElement = null;
-        AppState.selectedPlate   = null;
-        AppState.selectedShape   = null;
-        AppState.selectedPath    = null;
-        AppState.selectedGhost   = null;
-        AppState.hidePositionDisplay();
-        document.querySelectorAll('.player.selected').forEach(p => p.classList.remove('selected'));
-        document.querySelectorAll('.ball-selected').forEach(el => el.classList.remove('ball-selected'));
-        document.querySelectorAll('.element-selected').forEach(el => el.classList.remove('element-selected'));
-        document.querySelectorAll('.plate-selected').forEach(el => el.classList.remove('plate-selected'));
-        document.querySelectorAll('.shape-selected').forEach(el => el.classList.remove('shape-selected'));
-        Players.updateRotationHandle();
-        Elements.updateRotationHandle();
+        this._deselectAll();
 
         AppState.isAnimating = true;
         this._showBoardOverlay();
@@ -986,21 +972,7 @@ const Animations = {
         }
 
         // Deselect every selectable object before animation starts.
-        AppState.selectedPlayer  = null;
-        AppState.selectedBall    = null;
-        AppState.selectedElement = null;
-        AppState.selectedPlate   = null;
-        AppState.selectedShape   = null;
-        AppState.selectedPath    = null;
-        AppState.selectedGhost   = null;
-        AppState.hidePositionDisplay();
-        document.querySelectorAll('.player.selected').forEach(p => p.classList.remove('selected'));
-        document.querySelectorAll('.ball-selected').forEach(el => el.classList.remove('ball-selected'));
-        document.querySelectorAll('.element-selected').forEach(el => el.classList.remove('element-selected'));
-        document.querySelectorAll('.plate-selected').forEach(el => el.classList.remove('plate-selected'));
-        document.querySelectorAll('.shape-selected').forEach(el => el.classList.remove('shape-selected'));
-        Players.updateRotationHandle();
-        Elements.updateRotationHandle();
+        this._deselectAll();
 
         AppState.isAnimating = true;
         this._showBoardOverlay();
@@ -1140,6 +1112,29 @@ const Animations = {
         this.stop();
     },
 
+    // Clear every selectable object's state + CSS class. Called whenever
+    // animation state changes (play / playFrame / seekTo) so highlighted
+    // objects don't linger while playback is active or paused mid-way.
+    _deselectAll() {
+        AppState.selectedPlayer  = null;
+        AppState.selectedBall    = null;
+        AppState.selectedElement = null;
+        AppState.selectedPlate   = null;
+        AppState.selectedShape   = null;
+        AppState.selectedPath    = null;
+        AppState.selectedGhost   = null;
+        AppState.hidePositionDisplay();
+        document.querySelectorAll('.player.selected').forEach(p => p.classList.remove('selected'));
+        document.querySelectorAll('.ball-selected').forEach(el => el.classList.remove('ball-selected'));
+        document.querySelectorAll('.element-selected').forEach(el => el.classList.remove('element-selected'));
+        document.querySelectorAll('.plate-selected').forEach(el => el.classList.remove('plate-selected'));
+        document.querySelectorAll('.shape-selected').forEach(el => el.classList.remove('shape-selected'));
+        if (typeof Players !== 'undefined' && Players.updateRotationHandle) Players.updateRotationHandle();
+        if (typeof Elements !== 'undefined' && Elements.updateRotationHandle) Elements.updateRotationHandle();
+        // Shapes use a separate function that removes rotation + resize handles together.
+        if (typeof Shapes !== 'undefined' && Shapes.updateHandles) Shapes.updateHandles();
+    },
+
     // Show the transparent board overlay that blocks object interaction during play/pause.
     _showBoardOverlay() {
         const overlay = document.getElementById('animation-board-overlay');
@@ -1217,6 +1212,16 @@ const Animations = {
         this.animatePlayersAlongChain(progress);
         this.renderParentPaths(false, progress);
         this.updateProgressBar(progress);
+
+        // Show the board overlay and deselect everything while paused
+        // mid-animation; hide it at the endpoints (0 or 1) where the state is
+        // equivalent to goToStart / goToFrameEnd.
+        if (progress > 0 && progress < 1) {
+            this._deselectAll();
+            this._showBoardOverlay();
+        } else {
+            this._hideBoardOverlay();
+        }
     },
 
     // ========== CANVAS RENDERING FOR VIDEO EXPORT ==========
