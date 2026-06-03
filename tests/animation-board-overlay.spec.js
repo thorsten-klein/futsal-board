@@ -92,6 +92,111 @@ test('overlay becomes visible when playFrame() starts', async ({ page }) => {
     await page.evaluate(() => Animations.pause());
 });
 
+// ─── seekTo() / progress bar jumps ──────────────────────────────────────────
+
+test('overlay becomes visible after seekTo(0.5) (progress bar jump mid-animation)', async ({ page }) => {
+    await setup(page);
+
+    // Jump to halfway through the animation.
+    await page.evaluate(() => Animations.seekTo(0.5));
+
+    await expect(overlay(page)).toBeVisible();
+});
+
+test('overlay hides after seekTo(1) (jump to end)', async ({ page }) => {
+    await setup(page);
+
+    await page.evaluate(() => Animations.seekTo(0.5));
+    await expect(overlay(page)).toBeVisible();
+
+    await page.evaluate(() => Animations.seekTo(1));
+    await expect(overlay(page)).toBeHidden();
+});
+
+test('overlay hides after seekTo(0) (jump to start)', async ({ page }) => {
+    await setup(page);
+
+    await page.evaluate(() => Animations.seekTo(0.5));
+    await expect(overlay(page)).toBeVisible();
+
+    await page.evaluate(() => Animations.seekTo(0));
+    await expect(overlay(page)).toBeHidden();
+});
+
+test('clicking the progress container shows the overlay', async ({ page }) => {
+    await setup(page);
+
+    const bar = page.locator('#animation-progress-container');
+    const box = await bar.boundingBox();
+    // Click roughly halfway along the progress bar.
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(50);
+
+    await expect(overlay(page)).toBeVisible();
+});
+
+test('seekTo(0.5) removes the rotation handle (player) and shape handles', async ({ page }) => {
+    await setup(page);
+
+    // Select a player and a shape so their handles render.
+    await page.evaluate(() => {
+        AppState.selectedPlayer = AppState.players[0];
+        Players.render();
+        Players.updateRotationHandle();
+        AppState.selectedShape = AppState.shapes.find(s => s.id === 'shape-test-1');
+        Shapes.render();
+        Shapes.updateHandles();
+    });
+
+    // Sanity check: at least one rotation handle exists before seeking.
+    const handlesBefore = await page.locator('.rotation-handle').count();
+    expect(handlesBefore).toBeGreaterThan(0);
+
+    await page.evaluate(() => Animations.seekTo(0.5));
+    await page.waitForTimeout(50);
+
+    // After seeking, no rotation handles and no resize handles should remain.
+    const rotationHandlesAfter = await page.locator('.rotation-handle').count();
+    const resizeHandlesAfter = await page.locator('.shape-resize-handle, .resize-handle').count();
+    expect(rotationHandlesAfter, 'rotation handles remain after seek').toBe(0);
+    expect(resizeHandlesAfter, 'resize handles remain after seek').toBe(0);
+});
+
+test('seekTo(0.5) deselects every kind of object', async ({ page }) => {
+    await setup(page);
+
+    // Pre-select every object type.
+    await page.evaluate(() => {
+        AppState.selectedPlayer  = AppState.players[0];
+        AppState.selectedBall    = AppState.balls[0];
+        AppState.selectedElement = AppState.elements.find(e => e.type === 'cone');
+        AppState.selectedPlate   = AppState.plates[0];
+        AppState.selectedShape   = AppState.shapes.find(s => s.id === 'shape-test-1');
+        Players.render(); Balls.render(); Elements.render(); Plates.render(); Shapes.render();
+    });
+
+    // Seek mid-animation.
+    await page.evaluate(() => Animations.seekTo(0.5));
+    await page.waitForTimeout(50);
+
+    const state = await page.evaluate(() => ({
+        selectedPlayer:  AppState.selectedPlayer,
+        selectedBall:    AppState.selectedBall,
+        selectedElement: AppState.selectedElement,
+        selectedPlate:   AppState.selectedPlate,
+        selectedShape:   AppState.selectedShape,
+        selectedPath:    AppState.selectedPath,
+        selectedGhost:   AppState.selectedGhost,
+    }));
+    expect(state.selectedPlayer,  'selectedPlayer').toBeNull();
+    expect(state.selectedBall,    'selectedBall').toBeNull();
+    expect(state.selectedElement, 'selectedElement').toBeNull();
+    expect(state.selectedPlate,   'selectedPlate').toBeNull();
+    expect(state.selectedShape,   'selectedShape').toBeNull();
+    expect(state.selectedPath,    'selectedPath').toBeNull();
+    expect(state.selectedGhost,   'selectedGhost').toBeNull();
+});
+
 // ─── Objects cannot be selected while overlay is active ─────────────────────
 
 test('player cannot be selected while overlay is showing', async ({ page }) => {
