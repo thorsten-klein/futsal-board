@@ -54,8 +54,9 @@ jobs:
         with:
           name: coverage-shard-${{ matrix.shard }}
           path: .nyc_output/
-          if-no-files-found: error    # fail the job — coverage data MUST be produced
+          if-no-files-found: error          # fail the job — coverage data MUST be produced
           retention-days: 1
+          include-hidden-files: true        # .nyc_output is a dot-dir; v4 excludes it by default
 
   coverage:
     name: Merge coverage and upload to Codecov
