@@ -9,7 +9,11 @@ export default defineConfig({
     testDir: './tests',
     timeout: 15_000,
     expect: { timeout: 5_000 },
-    fullyParallel: false,     // keep sequential — tests share no server state
+    // Tests are isolated by Playwright: each gets its own BrowserContext, so
+    // localStorage / sessionStorage / cookies are not shared. No test file uses
+    // beforeAll or describe.serial, so file-internal ordering is irrelevant too.
+    fullyParallel: true,
+    workers: process.env.CI ? 2 : undefined,  // locally Playwright auto-picks ~50% of cores
     retries: 0,
     reporter: 'list',
     use: {

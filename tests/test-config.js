@@ -17,7 +17,11 @@ if (!fs.existsSync(coverageDir)) {
     fs.mkdirSync(coverageDir, { recursive: true });
 }
 
-// Extend base test with coverage collection
+// Extend base test with coverage collection.
+// Each test gets a fresh BrowserContext from Playwright, so localStorage /
+// sessionStorage / cookies / IndexedDB are isolated automatically. We also
+// proactively clear context-level storage at the end of each test as a
+// safety net for parallel runs.
 export const test = base.extend({
     page: async ({ page }, use) => {
         // Start coverage before each test
@@ -34,6 +38,18 @@ export const test = base.extend({
             await saveCoverage(coverage);
         } catch (e) {
             // Ignore errors during cleanup
+        }
+
+        // Safety net: actively clear storage so a worker reusing this context
+        // (Playwright recycles contexts within a worker) cannot leak state.
+        try {
+            await page.context().clearCookies();
+            await page.evaluate(() => {
+                try { localStorage.clear(); } catch (_) {}
+                try { sessionStorage.clear(); } catch (_) {}
+            });
+        } catch (_) {
+            // Page may already be closed; ignore.
         }
     },
 });
