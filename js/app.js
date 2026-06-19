@@ -2099,17 +2099,114 @@ const App = {
             // render incorrectly. We draw element SVGs separately below.
             layerClone.querySelectorAll('.element-svg').forEach(el => el.remove());
 
+            // Chrome's SVG-as-image rasterisation (used inside html-to-image) shrinks
+            // a flex container when one of its in-flow children has text whose
+            // intrinsic width is smaller than the container's explicit width — the
+            // .player flex box collapses to roughly half its CSS size and the number
+            // renders off-centre.  Lift each .player-number out of its .player
+            // (removing the text-bearing flex child) and re-add it as a sibling
+            // div in the layer clone, positioned over the player centre.  The
+            // .player keeps its declared dimensions; the number stays centred.
+            layerClone.querySelectorAll('.player').forEach(playerDiv => {
+                const numSpan = playerDiv.querySelector('.player-number');
+                if (!numSpan || !numSpan.textContent) return;
+
+                const playerW = parseFloat(playerDiv.style.width)  || 0;
+                const playerH = parseFloat(playerDiv.style.height) || 0;
+                const playerL = parseFloat(playerDiv.style.left)   || 0;
+                const playerT = parseFloat(playerDiv.style.top)    || 0;
+                if (!playerW || !playerH) return;
+
+                const cx = playerL + playerW / 2;
+                const cy = playerT + playerH / 2;
+
+                // Build a sibling div sized to the player so flexbox-free
+                // centring lays the number exactly over the body centre.
+                // Stack the player's own rotation with any counter-rotation that
+                // was on the original span (so the number stays upright).
+                // Read styling from the LIVE numSpan (computed styles on detached
+                // clones return defaults), with sensible fallbacks.
+                const liveSpan = playersLayer.querySelector(
+                    '[data-player-id="' + playerDiv.getAttribute('data-player-id') + '"] .player-number');
+                const cs = liveSpan ? getComputedStyle(liveSpan) : null;
+                const fontSize = (cs && cs.fontSize) || playerDiv.style.fontSize || '12px';
+                const color    = (numSpan.style.color || (cs && cs.color) || '#ffffff');
+                const numXform = numSpan.style.transform || '';
+
+                const playerRot = playerDiv.style.transform || '';
+                // Host is NOT a flex container (flex + text triggers the same
+                // SVG-as-image shrink bug we just routed around).  Render the
+                // number with an inline SVG <text> using text-anchor="middle"
+                // + dominant-baseline="central": that centres on the GLYPH's
+                // visual mid-point — not on the line-box baseline — so digits
+                // with off-centre metrics ("1", "7", etc.) and HiDPI subpixel
+                // rounding don't drift.
+                const fontPx = parseFloat(fontSize) || (playerW * 0.6);
+                const innerXform = numXform || '';
+                const labelHost = document.createElement('div');
+                labelHost.style.cssText =
+                    'position:absolute;' +
+                    `left:${cx - playerW / 2}px;` +
+                    `top:${cy - playerH / 2}px;` +
+                    `width:${playerW}px;` +
+                    `height:${playerH}px;` +
+                    'pointer-events:none;' +
+                    'z-index:60;' +
+                    (playerRot ? `transform:${playerRot};` : '');
+
+                const NS = 'http://www.w3.org/2000/svg';
+                const labelSvg = document.createElementNS(NS, 'svg');
+                labelSvg.setAttribute('width',  String(playerW));
+                labelSvg.setAttribute('height', String(playerH));
+                labelSvg.setAttribute('viewBox', `0 0 ${playerW} ${playerH}`);
+                labelSvg.style.cssText =
+                    'position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible;' +
+                    (innerXform ? `transform:${innerXform};transform-origin:50% 50%;` : '');
+
+                // Glyph-centred text.  In SVG the default baseline is
+                // "alphabetic", so y is at the baseline (bottom of the digit
+                // glyph).  Setting `dy="0.35em"` shifts the baseline down by
+                // ~half the cap-height, which puts the visible mid-line of
+                // the glyph on y — pixel-perfect across DPRs.  Don't combine
+                // with `dominant-baseline` or both shifts compound.
+                const labelText = document.createElementNS(NS, 'text');
+                labelText.setAttribute('x', String(playerW / 2));
+                labelText.setAttribute('y', String(playerH / 2));
+                labelText.setAttribute('dy', '0.35em');
+                labelText.setAttribute('text-anchor', 'middle');
+                labelText.setAttribute('font-size', String(fontPx));
+                labelText.setAttribute('font-weight', '700');
+                labelText.setAttribute('fill', color);
+                labelText.textContent = numSpan.textContent;
+                labelSvg.appendChild(labelText);
+                labelHost.appendChild(labelSvg);
+
+                numSpan.remove();
+                playerDiv.parentNode.appendChild(labelHost);
+            });
+
             wrapper.appendChild(layerClone);
             document.body.appendChild(wrapper);
 
+            // Force pixelRatio:1.  Without this, html-to-image multiplies the
+            // canvas dimensions by window.devicePixelRatio — so on a Windows /
+            // HiDPI screen with DPR 1.25 / 1.5 / 2 the entityCanvas comes out at
+            // (w * dpr) × (h * dpr) instead of w × h.  Drawing that oversized
+            // canvas onto the w × h export at (0, 0) clips its bottom-right
+            // quadrants away and shifts every entity into the upper-left,
+            // making a centre-of-board player land in the bottom-right of the
+            // export.  Locking pixelRatio:1 makes the entityCanvas exactly
+            // w × h so positions match.  We also pass explicit width/height to
+            // drawImage as a belt-and-braces guard.
             const entityCanvas = await htmlToImage.toCanvas(layerClone, {
                 ...opts,
                 canvasWidth:  w,
                 canvasHeight: h,
+                pixelRatio:   1,
             });
 
             document.body.removeChild(wrapper);
-            ctx.drawImage(entityCanvas, 0, 0);
+            ctx.drawImage(entityCanvas, 0, 0, w, h);
 
             // ── Draw element SVGs (goals, cones, etc.) as SVG images ─────────────
             // html-to-image cannot reliably render inline SVGs that contain <defs>
